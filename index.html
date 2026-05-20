@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flota C4</title>
+  <!-- GitHub Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Courier+Prime&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+  <!-- Chart.js and QRious via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+
+  <!-- Top Header Bar -->
+  <header class="Header">
+    <div class="Header-item">
+      <a href="#" class="Header-link" id="logo-link">
+        <i data-lucide="laptop" class="mr-2"></i>
+        <span class="Header-brand">Artillería C4</span>
+      </a>
+    </div>
+    <div class="Header-item ml-auto d-flex align-items-center gap-2">
+      <span class="Label Label--attention mr-2" id="header-last-revision" style="display: none;">
+        Última revisión: 00000-00
+      </span>
+      <span class="Label Label--success mr-2" id="connection-status">
+        <span class="status-indicator"></span> En línea
+      </span>
+      <div class="dropdown">
+        <button class="btn btn-sm d-flex align-items-center" id="user-profile-btn" style="border: none; background: transparent; color: white; padding: 0;">
+          <div class="CircleBadge CircleBadge--small bg-canvas-subtle p-0 mr-2" style="width: 24px; height: 24px;">
+            <i data-lucide="user" style="width: 14px; height: 14px; color: var(--color-fg-default);"></i>
+          </div>
+          <span class="text-bold" id="user-profile-name">Perfil</span>
+          <i data-lucide="chevron-down" class="ml-1" style="width: 14px; height: 14px;"></i>
+        </button>
+        <div class="dropdown-menu" id="user-dropdown-menu">
+          <button class="dropdown-item" id="btn-view-profile">
+            <i data-lucide="user" class="mr-2" style="width:14px; height:14px;"></i> Ver perfil
+          </button>
+          <button class="dropdown-item" id="btn-open-settings">
+            <i data-lucide="settings" class="mr-2" style="width:14px; height:14px;"></i> Configuraciones
+          </button>
+          <div class="dropdown-divider"></div>
+          <button class="dropdown-item text-red" id="btn-logout">
+            <i data-lucide="log-out" class="mr-2" style="width:14px; height:14px;"></i> Cerrar sesión
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Sub-header (GitHub Style Repository Tabs) -->
+  <nav class="UnderlineNav" aria-label="Navegación principal">
+    <div class="UnderlineNav-body">
+      <button class="UnderlineNav-item active" id="tab-dashboard" data-target="view-dashboard">
+        <i data-lucide="layout-dashboard" class="UnderlineNav-octicon"></i>
+        <span>Tablero</span>
+      </button>
+      <button class="UnderlineNav-item" id="tab-fleet" data-target="view-fleet">
+        <i data-lucide="list" class="UnderlineNav-octicon"></i>
+        <span>Flota</span>
+        <span class="Counter" id="fleet-counter">0</span>
+      </button>
+      <button class="UnderlineNav-item" id="tab-inspections" data-target="view-inspections">
+        <i data-lucide="file-check" class="UnderlineNav-octicon"></i>
+        <span>Revisión</span>
+        <span class="Counter" id="inspections-counter">0</span>
+      </button>
+      <button class="UnderlineNav-item" id="tab-maintenance" data-target="view-maintenance">
+        <i data-lucide="wrench" class="UnderlineNav-octicon"></i>
+        <span>Mantenimiento</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="container-xl px-3 px-md-4 px-lg-5 my-4">
+
+    <!-- ==================== VIEW: DASHBOARD ==================== -->
+    <section id="view-dashboard" class="tab-view active">
+      <div class="Subhead">
+        <div class="Subhead-heading">Tablero de Control</div>
+        <div class="Subhead-description">Resumen de operatividad, alertas de mantenimiento y registro de cambios del sistema.</div>
+      </div>
+
+      <div class="Layout Layout--flowRow-untilmd">
+        <!-- Main Dashboard Column -->
+        <div class="Layout-main">
+          
+          <!-- Stat Cards Row -->
+          <div class="grid-stats mb-4">
+            <div class="Box Box--blue p-3 d-flex align-items-center">
+              <div class="CircleBadge CircleBadge--small bg-blue-light mr-3">
+                <i data-lucide="car" class="text-blue"></i>
+              </div>
+              <div>
+                <span class="text-small text-muted d-block">Total Unidades</span>
+                <span class="f2 text-bold" id="stat-total-vehicles">0</span>
+              </div>
+            </div>
+            <div class="Box Box--green p-3 d-flex align-items-center">
+              <div class="CircleBadge CircleBadge--small bg-green-light mr-3">
+                <i data-lucide="check-circle" class="text-green"></i>
+              </div>
+              <div>
+                <span class="text-small text-muted d-block">Operativos</span>
+                <span class="f2 text-bold" id="stat-operativos">0</span>
+              </div>
+            </div>
+            <div class="Box Box--yellow p-3 d-flex align-items-center">
+              <div class="CircleBadge CircleBadge--small bg-yellow-light mr-3">
+                <i data-lucide="alert-triangle" class="text-yellow"></i>
+              </div>
+              <div>
+                <span class="text-small text-muted d-block">Recuperables</span>
+                <span class="f2 text-bold" id="stat-recuperables">0</span>
+              </div>
+            </div>
+            <div class="Box Box--red p-3 d-flex align-items-center">
+              <div class="CircleBadge CircleBadge--small bg-red-light mr-3">
+                <i data-lucide="x-circle" class="text-red"></i>
+              </div>
+              <div>
+                <span class="text-small text-muted d-block">Chatarras</span>
+                <span class="f2 text-bold" id="stat-chatarras">0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chart & Breakdown Section -->
+          <div class="Box mb-4">
+            <div class="Box-header">
+              <h3 class="Box-title">Distribución de Operatividad</h3>
+            </div>
+            <div class="Box-body">
+              <div class="chart-container">
+                <canvas id="operatividadChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Audit Log Section -->
+          <div class="Box">
+            <div class="Box-header d-flex align-items-center">
+              <h3 class="Box-title flex-auto">Historial de Cambios</h3>
+              <button class="btn btn-sm btn-danger" id="btn-clear-logs">Limpiar historial</button>
+            </div>
+            <div class="Box-body p-0">
+              <ul class="Box-row-list" id="audit-log-list">
+                <!-- Audit logs rendered dynamically -->
+                <li class="Box-row text-center text-muted py-4">No hay cambios registrados todavía.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar Dashboard Column -->
+        <div class="Layout-sidebar">
+          <!-- Upcoming Maintenance Alerts -->
+          <div class="Box mb-4">
+            <div class="Box-header bg-subtle">
+              <h3 class="Box-title d-flex align-items-center">
+                <i data-lucide="bell" class="mr-2 text-attention"></i>
+                Alertas de Mantenimiento Próximo
+              </h3>
+            </div>
+            <div class="Box-body p-0" style="max-height: 300px; overflow-y: auto;">
+              <div id="maintenance-alerts" class="blankslate blankslate-spacious p-3 text-center d-none">
+                <i data-lucide="check-circle-2" class="blankslate-icon text-green"></i>
+                <h4 class="m-0">Flota al día</h4>
+                <p class="text-small text-muted mb-0">No se detectaron alertas de mantenimiento.</p>
+              </div>
+              <ul class="Box-row-list" id="alerts-list">
+                <!-- Alerts rendered dynamically -->
+              </ul>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="Box">
+            <div class="Box-header">
+              <h3 class="Box-title">Acciones Rápidas</h3>
+            </div>
+            <div class="Box-body">
+              <button class="btn btn-primary btn-block mb-2" id="quick-add-vehicle">
+                <i data-lucide="plus-circle" class="mr-1"></i> Ingresar Vehículo
+              </button>
+              <button class="btn btn-block mb-2" id="quick-new-revision">
+                <i data-lucide="file-signature" class="mr-1"></i> Generar Revisión
+              </button>
+              <button class="btn btn-block mb-2" id="quick-new-maintenance">
+                <i data-lucide="tool" class="mr-1"></i> Reportar Mantenimiento
+              </button>
+              <hr class="my-2">
+              <button class="btn btn-sm btn-outline-purple btn-block" id="btn-load-demo">
+                <i data-lucide="sparkles" class="mr-1"></i> Cargar Datos de Demostración
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW: FLEET (INVENTARIO) ==================== -->
+    <section id="view-fleet" class="tab-view">
+      <div class="Subhead">
+        <div class="Subhead-heading">Inventario de la Flota</div>
+        <div class="Subhead-description">Registro y especificaciones técnicas de todas las unidades tácticas, administrativas y de combate.</div>
+        <div class="Subhead-actions d-flex flex-items-center" style="gap: 8px;">
+          <label class="btn" style="cursor: pointer;" for="file-import-csv">
+            <i data-lucide="upload" class="mr-1"></i> Importar CSV
+          </label>
+          <input type="file" id="file-import-csv" accept=".csv" class="d-none">
+          <button class="btn btn-primary" id="btn-add-vehicle">
+            <i data-lucide="plus" class="mr-1"></i> Ingresar Unidad
+          </button>
+        </div>
+      </div>
+
+      <!-- Filters & Search Toolbar -->
+      <div class="Box p-3 bg-subtle border-bottom-0 rounded-bottom-0 d-flex flex-wrap gap-2 align-items-center">
+        <div class="flex-auto d-flex gap-2">
+          <div class="form-group mb-0 flex-auto">
+            <div class="input-group">
+              <input type="text" class="form-control" id="search-query" placeholder="Buscar por Marca, Modelo, RHE, Chasis..." aria-label="Buscar vehículo">
+              <span class="input-group-button">
+                <button class="btn" type="button" id="btn-search-clear">
+                  <i data-lucide="x" class="v-align-middle"></i>
+                </button>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          <select class="form-select select-sm" id="filter-type" aria-label="Filtrar por tipo">
+            <option value="">Todos los tipos</option>
+            <option value="Camión">Camión</option>
+            <option value="Pickup">Pickup</option>
+            <option value="Jeep">Jeep</option>
+            <option value="Batalla">Batalla</option>
+          </select>
+          <select class="form-select select-sm" id="filter-operatividad" aria-label="Filtrar por operatividad">
+            <option value="">Todas las operatividades</option>
+            <option value="Operativo">Operativo</option>
+            <option value="Recuperable">Recuperable</option>
+            <option value="Chatarra">Chatarra</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Fleet Data Table Box -->
+      <div class="Box rounded-top-0">
+        <div class="overflow-x-auto">
+          <table class="table-fleet border-0" id="fleet-table">
+            <thead>
+              <tr>
+                <th>RHE (Placa)</th>
+                <th>Tipo</th>
+                <th>Marca / Modelo</th>
+                <th>No. Chasis / Motor</th>
+                <th>Año</th>
+                <th>Operatividad</th>
+                <th class="text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="fleet-table-body">
+              <!-- Rendered dynamically -->
+              <tr>
+                <td colspan="7" class="text-center text-muted py-4">No hay vehículos registrados. Hacé clic en "Ingresar Unidad" para registrar uno.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW: INSPECTIONS (REVISIONES) ==================== -->
+    <section id="view-inspections" class="tab-view">
+      <div class="Subhead">
+        <div class="Subhead-heading">Generador de Revisiones</div>
+        <div class="Subhead-description">Emitir conjuntos de hojas de revisión con códigos QR y consecutivos de control únicos.</div>
+      </div>
+
+      <div class="Layout Layout--flowRow-untilmd">
+        <div class="Layout-main">
+          <!-- Emission Form -->
+          <div class="Box mb-4">
+            <div class="Box-header">
+              <h3 class="Box-title">Emitir Conjunto de Revisiones</h3>
+            </div>
+            <form id="form-generate-inspections" class="Box-body">
+              <div class="flash flash-warn mb-3 text-small">
+                <strong>Regla de Negocio:</strong> Solo se puede emitir revisiones para unidades con estado <strong>Operativo</strong> o <strong>Recuperable</strong>. Las unidades <strong>Chatarra</strong> están excluidas y no aparecerán en la lista de selección.
+              </div>
+
+              <!-- Prefix and start number -->
+              <div class="row mb-3">
+                <div class="col-6 form-group">
+                  <label for="inspection-start-number">Número Inicial de Orden (5 dígitos)</label>
+                  <input type="number" class="form-control" id="inspection-start-number" readonly>
+                  <p class="note">Generará órdenes correlativas en formato <code>XXXXX-26</code>. Se modifica desde Configuraciones.</p>
+                </div>
+                <div class="col-6 form-group">
+                  <label for="inspection-year-suffix">Sufijo de Año</label>
+                  <input type="text" class="form-control" id="inspection-year-suffix" value="26" readonly required>
+                  <p class="note">Fijo para el ejercicio corriente.</p>
+                </div>
+              </div>
+
+              <!-- Selector list of vehicles (excl. chatarra) -->
+              <div class="form-group mb-3">
+                <label class="d-block mb-1">Seleccionar Unidades para Inspección (Ordenadas automáticamente por RHE de menor a mayor)</label>
+                <div class="Box border-default" style="max-height: 250px; overflow-y: auto;" id="vehicle-checkbox-list">
+                  <!-- JS will render rows of checkboxes here -->
+                  <div class="p-3 text-center text-muted">No hay vehículos válidos (Operativos/Recuperables) para seleccionar.</div>
+                </div>
+                <div class="d-flex justify-content-between mt-2">
+                  <button type="button" class="btn btn-sm" id="btn-select-all-vehicles">Seleccionar Todos</button>
+                  <button type="button" class="btn btn-sm" id="btn-deselect-all-vehicles">Deseleccionar Todos</button>
+                </div>
+              </div>
+
+              <div class="form-actions mt-3">
+                <button type="submit" class="btn btn-primary" id="btn-submit-inspections">
+                  <i data-lucide="file-plus" class="mr-1"></i> Emitir Hojas de Revisión
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- History of Emissions -->
+          <div class="Box">
+            <div class="Box-header">
+              <h3 class="Box-title">Historial de Revisiones Emitidas</h3>
+            </div>
+            <div class="Box-body p-0">
+              <ul class="Box-row-list" id="inspections-history-list">
+                <li class="Box-row text-center text-muted py-4">No se han emitido revisiones aún.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="Layout-sidebar">
+          <!-- Printing instructions -->
+          <div class="Box bg-subtle p-3 mb-3">
+            <h4 class="mb-2 d-flex align-items-center">
+              <i data-lucide="info" class="mr-1 text-blue"></i>
+              Instrucciones de Impresión
+            </h4>
+            <p class="text-small text-muted">
+              El diseño de las hojas de revisión utiliza un fondo <strong>blanco puro</strong> con líneas grises muy finas. 
+              Al imprimir (<code>Ctrl + P</code>), seleccioná guardar como PDF o imprimir directamente. El sistema está formateado para realizar saltos de página correctos entre cada hoja del lote.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW: MAINTENANCE (MANTENIMIENTO) ==================== -->
+    <section id="view-maintenance" class="tab-view">
+      <div class="Subhead">
+        <div class="Subhead-heading">Registro de Mantenimiento</div>
+        <div class="Subhead-description">Reporte de mantenimientos de flota, cambios de aceite de motor, caja, transmisión 4x4 y diferenciales.</div>
+        <div class="Subhead-actions">
+          <button class="btn btn-primary" id="btn-add-maintenance">
+            <i data-lucide="wrench" class="mr-1"></i> Registrar Mantenimiento
+          </button>
+        </div>
+      </div>
+
+      <div class="Box">
+        <div class="Box-header">
+          <h3 class="Box-title">Historial Completo de Mantenimientos</h3>
+        </div>
+        <div class="Box-body p-0">
+          <div class="overflow-x-auto">
+            <table class="table-fleet border-0" id="maintenance-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Vehículo (RHE)</th>
+                  <th>Kilometraje</th>
+                  <th>Aceite Motor</th>
+                  <th>Aceite Caja</th>
+                  <th>Transmisión 4x4</th>
+                  <th>Diferencial</th>
+                  <th>Otros</th>
+                  <th class="text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="maintenance-table-body">
+                <tr>
+                  <td colspan="9" class="text-center text-muted py-4">No hay reportes de mantenimiento registrados.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== PRINT SHEET TEMPLATE OVERLAY ==================== -->
+  <div id="print-container" class="print-mode-hidden">
+    <!-- Rendered dynamically during print/view mode -->
+  </div>
+
+  <!-- ==================== MODAL: ADD/EDIT VEHICLE ==================== -->
+  <div class="modal-backdrop" id="modal-vehicle">
+    <div class="modal-wrapper">
+      <div class="Box modal-box">
+        <div class="Box-header">
+          <button class="Box-btn-close btn-octicon float-right" type="button" aria-label="Cerrar modal" data-close-modal="modal-vehicle">
+            <i data-lucide="x"></i>
+          </button>
+          <h3 class="Box-title" id="modal-vehicle-title">Ingresar Nueva Unidad de Flota</h3>
+        </div>
+        <form id="form-vehicle" autocomplete="off">
+          <input type="hidden" id="vehicle-id-edit">
+          
+          <div class="Box-body modal-scrollable">
+            <!-- Alert message inside form -->
+            <div id="modal-vehicle-alert" class="flash flash-error mb-3 d-none"></div>
+
+            <!-- Tabbed form sections to prevent overflow -->
+            <div class="tabnav mb-3">
+              <nav class="tabnav-tabs" aria-label="Secciones del formulario">
+                <button type="button" class="tabnav-tab active" id="form-tab-general">1. Info General</button>
+                <button type="button" class="tabnav-tab" id="form-tab-technical">2. Especificaciones Técnicas</button>
+                <button type="button" class="tabnav-tab" id="form-tab-acquisition">3. Adquisición y Seguro</button>
+              </nav>
+            </div>
+
+            <!-- SECTION 1: GENERAL INFO -->
+            <div class="form-section active" id="sec-general">
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-rhe">RHE (Placa / Registro) <span class="text-red">*</span></label>
+                  <input type="text" class="form-control" id="v-rhe" required placeholder="Ej. RHE-0123">
+                  <p class="note">Identificador único de la unidad.</p>
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-type">Tipo <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-type" required>
+                    <option value="">Seleccione tipo...</option>
+                    <option value="Camión">Camión</option>
+                    <option value="Pickup">Pickup</option>
+                    <option value="Jeep">Jeep</option>
+                    <option value="Batalla">Batalla</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-marca">Marca <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-marca" required>
+                    <option value="">Seleccione marca...</option>
+                    <option value="TOYOTA">TOYOTA</option>
+                    <option value="AM GENERAL">AM GENERAL</option>
+                    <option value="OTRA">OTRA (Especificar en modelo)</option>
+                  </select>
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-modelo">Modelo <span class="text-red">*</span></label>
+                  <input type="text" class="form-control" id="v-modelo" required placeholder="Ej. Hilux o UNIMOG">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-4 form-group">
+                  <label for="v-chasis">No. Chasis <span class="text-red">*</span></label>
+                  <input type="text" class="form-control text-mono" id="v-chasis" required placeholder="Código VIN">
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-motor">No. Motor <span class="text-red">*</span></label>
+                  <input type="text" class="form-control text-mono" id="v-motor" required placeholder="Código Motor">
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-year">Año <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-year" required min="1950" max="2027" placeholder="Ej. 2022">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-4 form-group">
+                  <label for="v-color">Color <span class="text-red">*</span></label>
+                  <input type="text" class="form-control" id="v-color" required placeholder="Ej. Verde Oliva">
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-operatividad">Estado de Operatividad <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-operatividad" required>
+                    <option value="Operativo">Operativo</option>
+                    <option value="Recuperable">Recuperable</option>
+                    <option value="Chatarra">Chatarra</option>
+                  </select>
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-categoria">Categoría <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-categoria" required>
+                    <option value="Administrativo">Administrativo</option>
+                    <option value="Táctico">Táctico</option>
+                    <option value="Combate">Combate</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="v-situacion">Situación Actual <span class="text-red">*</span></label>
+                <input type="text" class="form-control" id="v-situacion" required placeholder="Ej. En servicio activo, Fuera de servicio momentáneo, etc.">
+              </div>
+            </div>
+
+            <!-- SECTION 2: TECHNICAL SPECS -->
+            <div class="form-section" id="sec-technical">
+              <div class="row">
+                <div class="col-4 form-group">
+                  <label for="v-km">Kilometraje (km) <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-km" required min="0" value="0">
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-engine-size">Tamaño del Motor <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-engine-size" required placeholder="Ej. 2500" min="0">
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-cylinders">Cilindrada (Cilindros) <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-cylinders" required min="1" max="16" placeholder="Ej. 4">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-4 form-group">
+                  <label for="v-hp">Potencia (HP) <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-hp" required min="0" placeholder="Ej. 150">
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-traction">Tipo de Tracción <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-traction" required>
+                    <option value="Doble">Doble (4x4)</option>
+                    <option value="Sencillo">Sencillo (4x2)</option>
+                  </select>
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-transmission">Transmisión <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-transmission" required>
+                    <option value="Mecánica">Mecánica</option>
+                    <option value="Automática">Automática</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-cabin">Cabina <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-cabin" required>
+                    <option value="Sencilla">Sencilla</option>
+                    <option value="Doble cabina">Doble cabina</option>
+                    <option value="Con camarote">Con camarote</option>
+                    <option value="Otros">Otros (Especificar abajo)</option>
+                  </select>
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-cabin-other">Especificar Cabina (Si seleccionó Otros)</label>
+                  <input type="text" class="form-control" id="v-cabin-other" placeholder="Especificar tipo de cabina">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-fuel">Tipo de Combustible <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-fuel" required>
+                    <option value="Diesel">Diesel</option>
+                    <option value="Gasolina">Gasolina</option>
+                  </select>
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-speeds">Cantidad de Velocidades <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-speeds" required min="1" max="18" value="5">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-oil-motor">Aceite de Motor Recomendado <span class="text-red">*</span></label>
+                  <input type="text" class="form-control" id="v-oil-motor" required placeholder="Ej. 15W-40">
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-oil-gear">Aceite de Caja Recomendado <span class="text-red">*</span></label>
+                  <input type="text" class="form-control" id="v-oil-gear" required placeholder="Ej. 80W-90">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-oil-4x4">Aceite Transmisión 4x4</label>
+                  <input type="text" class="form-control" id="v-oil-4x4" placeholder="Ej. ATF o 75W-90 (Si aplica)">
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-oil-diff">Aceite de Diferencial <span class="text-red">*</span></label>
+                  <input type="text" class="form-control" id="v-oil-diff" required placeholder="Ej. 85W-140">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-filter-air">Código Filtro de Aire <span class="text-red">*</span></label>
+                  <input type="text" class="form-control text-mono" id="v-filter-air" required placeholder="Ej. FA-1092">
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-filter-fuel">Código Filtro Combustible <span class="text-red">*</span></label>
+                  <input type="text" class="form-control text-mono" id="v-filter-fuel" required placeholder="Ej. FC-3091">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-4 form-group">
+                  <label for="v-tanks">Cant. Tanques <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-tanks" required min="1" value="1">
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-tank-cap">Capacidad Tanque (gal) <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-tank-cap" required min="1" placeholder="Ej. 20">
+                </div>
+                <div class="col-4 form-group">
+                  <label for="v-tyre-num">Cant. de Llantas <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-tyre-num" required min="2" value="4">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-rin">Rin <span class="text-red">*</span></label>
+                  <input type="text" class="form-control text-mono" id="v-rin" required placeholder="Ej. 16 o 20">
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-load">Carga Útil (libras) <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-load" required min="0" placeholder="Ej. 2200">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label>Autonomía Carretera (km/gal) <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-auto-hwy" required min="1" step="0.1" placeholder="Ej. 45">
+                </div>
+                <div class="col-6 form-group">
+                  <label>Autonomía Mixta (km/gal) <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-auto-mix" required min="1" step="0.1" placeholder="Ej. 38">
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-passengers-eq">Pasajeros Con Equipo <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-passengers-eq" required min="1" value="3">
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-passengers-noeq">Pasajeros Sin Equipo <span class="text-red">*</span></label>
+                  <input type="number" class="form-control" id="v-passengers-noeq" required min="1" value="5">
+                </div>
+              </div>
+            </div>
+
+            <!-- SECTION 3: ACQUISITION AND INSURANCE -->
+            <div class="form-section" id="sec-acquisition">
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label for="v-acquisition">Forma de Adquisición <span class="text-red">*</span></label>
+                  <select class="form-select" id="v-acquisition" required>
+                    <option value="Fondo nacional">Fondo nacional</option>
+                    <option value="Donación">Donación</option>
+                    <option value="Tasa de seguridad">Tasa de seguridad</option>
+                    <option value="Convenio FMS">Convenio FMS</option>
+                    <option value="Otros Convenios">Otros Convenios (Especificar abajo)</option>
+                  </select>
+                </div>
+                <div class="col-6 form-group">
+                  <label for="v-acquisition-other">Especificar Convenio/Otros</label>
+                  <input type="text" class="form-control" id="v-acquisition-other" placeholder="Nombre de convenio u otros">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="v-value">Valor del Vehículo <span class="currency-lbl text-muted">($ USD)</span> <span class="text-red">*</span></label>
+                <input type="number" class="form-control" id="v-value" required min="0" placeholder="Ej. 35000">
+              </div>
+
+              <!-- Insurance Section -->
+              <div class="Box p-3 bg-subtle mb-3">
+                <span class="text-bold d-block mb-2">Información del Seguro</span>
+                <div class="form-group">
+                  <label class="d-flex align-items-center">
+                    <input type="checkbox" id="v-has-insurance" class="mr-2">
+                    El vehículo cuenta con póliza de seguro activa
+                  </label>
+                </div>
+                
+                <div id="insurance-fields" class="d-none">
+                  <div class="form-group">
+                    <label for="v-insurance-co">Nombre de la Aseguradora</label>
+                    <input type="text" class="form-control" id="v-insurance-co" placeholder="Ej. MAPFRE o Seguros del País">
+                  </div>
+                  <div class="row">
+                    <div class="col-6 form-group">
+                      <label for="v-insurance-num">Número de Póliza</label>
+                      <input type="text" class="form-control text-mono" id="v-insurance-num" placeholder="Código de póliza">
+                    </div>
+                    <div class="col-6 form-group">
+                      <label for="v-insurance-value">Valor Asegurado <span class="currency-lbl text-muted">($ USD)</span></label>
+                      <input type="number" class="form-control" id="v-insurance-value" min="0" placeholder="Ej. 30000">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="v-observations">Observaciones</label>
+                <textarea class="form-control" id="v-observations" rows="3" placeholder="Ej. Vehículo se encuentra en el CALFA en calidad de depósito."></textarea>
+              </div>
+            </div>
+          </div>
+          
+          <div class="Box-footer text-right">
+            <button class="btn mr-2" type="button" data-close-modal="modal-vehicle">Cancelar</button>
+            <button class="btn btn-primary" type="submit" id="btn-save-vehicle">Guardar Unidad</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: ADD MAINTENANCE ==================== -->
+  <div class="modal-backdrop" id="modal-maintenance">
+    <div class="modal-wrapper">
+      <div class="Box modal-box">
+        <div class="Box-header">
+          <button class="Box-btn-close btn-octicon float-right" type="button" aria-label="Cerrar modal" data-close-modal="modal-maintenance">
+            <i data-lucide="x"></i>
+          </button>
+          <h3 class="Box-title">Registrar Reporte de Mantenimiento</h3>
+        </div>
+        <form id="form-maintenance" autocomplete="off">
+          <div class="Box-body">
+            <div id="modal-maintenance-alert" class="flash flash-error mb-3 d-none"></div>
+
+            <div class="row">
+              <div class="col-6 form-group">
+                <label for="m-vehicle">Seleccionar Vehículo <span class="text-red">*</span></label>
+                <select class="form-select" id="m-vehicle" required>
+                  <option value="">Seleccione vehículo...</option>
+                  <!-- JS renders options here -->
+                </select>
+              </div>
+              <div class="col-6 form-group">
+                <label for="m-km">Kilometraje de Mantenimiento (km) <span class="text-red">*</span></label>
+                <input type="number" class="form-control" id="m-km" required min="0" placeholder="Kilometraje actual">
+              </div>
+            </div>
+
+            <!-- Oil Changes -->
+            <div class="Box p-3 bg-subtle mb-3">
+              <span class="text-bold d-block mb-3"><i data-lucide="droplet" class="mr-1 text-blue"></i> Reporte de Cambio de Aceite</span>
+              
+              <div class="row">
+                <div class="col-6 form-group">
+                  <label class="d-flex align-items-center">
+                    <input type="checkbox" id="m-oil-motor" class="mr-2">
+                    Cambio de Aceite de Motor
+                  </label>
+                </div>
+                <div class="col-6 form-group">
+                  <label class="d-flex align-items-center">
+                    <input type="checkbox" id="m-oil-gear" class="mr-2">
+                    Cambio de Aceite de Caja
+                  </label>
+                </div>
+              </div>
+
+              <div class="row mt-2">
+                <div class="col-6 form-group mb-0">
+                  <label class="d-flex align-items-center">
+                    <input type="checkbox" id="m-oil-4x4" class="mr-2">
+                    Cambio de Aceite Transmisión 4x4
+                  </label>
+                </div>
+                <div class="col-6 form-group mb-0">
+                  <label class="d-flex align-items-center">
+                    <input type="checkbox" id="m-oil-diff" class="mr-2">
+                    Cambio de Aceite de Diferencial
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Other works -->
+            <div class="form-group">
+              <label for="m-other">Otros Trabajos / Especificar Mantenimiento</label>
+              <textarea class="form-control" id="m-other" rows="3" placeholder="Especificá reparaciones adicionales, cambios de filtros, frenos, llantas, etc."></textarea>
+            </div>
+          </div>
+          <div class="Box-footer text-right">
+            <button class="btn mr-2" type="button" data-close-modal="modal-maintenance">Cancelar</button>
+            <button class="btn btn-primary" type="submit">Guardar Reporte</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: DETAILED TECHNICAL CARD ==================== -->
+  <div class="modal-backdrop" id="modal-card">
+    <div class="modal-wrapper">
+      <div class="Box modal-box-large">
+        <div class="Box-header">
+          <button class="Box-btn-close btn-octicon float-right" type="button" aria-label="Cerrar modal" data-close-modal="modal-card">
+            <i data-lucide="x"></i>
+          </button>
+          <div class="d-flex align-items-center">
+            <h3 class="Box-title mr-3">Ficha Técnica Oficial del Vehículo</h3>
+            <span class="Label mr-2" id="card-badge-operatividad">Operativo</span>
+            <span class="Label bg-subtle" id="card-badge-categoria">Táctico</span>
+          </div>
+        </div>
+        <div class="Box-body modal-scrollable" id="card-content">
+          <!-- Card content is injected dynamically by JS -->
+        </div>
+        <div class="Box-footer d-flex justify-content-between">
+          <div>
+            <button class="btn btn-danger" id="btn-delete-vehicle-card"><i data-lucide="trash-2" class="mr-1"></i> Eliminar Unidad</button>
+            <button class="btn" id="btn-edit-vehicle-card"><i data-lucide="edit" class="mr-1"></i> Editar Unidad</button>
+          </div>
+          <button class="btn btn-primary" data-close-modal="modal-card">Cerrar Ficha</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: SIMULATOR QR ESCÁNER ==================== -->
+  <div class="modal-backdrop" id="modal-qr-scanner">
+    <div class="modal-wrapper">
+      <div class="Box modal-box">
+        <div class="Box-header">
+          <button class="Box-btn-close btn-octicon float-right" type="button" aria-label="Cerrar modal" data-close-modal="modal-qr-scanner">
+            <i data-lucide="x"></i>
+          </button>
+          <h3 class="Box-title">Escáner de QR - Lectura de Ficha Técnica</h3>
+        </div>
+        <div class="Box-body text-center">
+          <i data-lucide="qr-code" class="text-blue mb-2" style="width: 48px; height: 48px;"></i>
+          <h4 class="mb-2">Información del Código QR Escaneado</h4>
+          <p class="text-small text-muted mb-3">Los datos codificados del vehículo se leyeron con éxito.</p>
+          <div class="Box p-3 bg-subtle text-left text-mono text-small mb-3" style="max-height: 250px; overflow-y: auto;" id="qr-scan-data">
+            <!-- QR data injected here -->
+          </div>
+          <button class="btn btn-primary btn-block" id="btn-open-scanned-vehicle">
+            <i data-lucide="eye" class="mr-1"></i> Ver Ficha Técnica Completa
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: CONFIGURACIONES (SETTINGS) ==================== -->
+  <div class="modal-backdrop" id="modal-settings">
+    <div class="modal-wrapper">
+      <div class="Box modal-box">
+        <div class="Box-header">
+          <button class="Box-btn-close btn-octicon float-right" type="button" aria-label="Cerrar modal" data-close-modal="modal-settings">
+            <i data-lucide="x"></i>
+          </button>
+          <h3 class="Box-title">Configuraciones del Sistema</h3>
+        </div>
+        <div class="Box-body">
+          <div class="form-group mb-4">
+            <label for="settings-theme">Apariencia</label>
+            <div class="d-flex align-items-center justify-content-between p-3 border-default rounded-2">
+              <div class="d-flex align-items-center">
+                <i data-lucide="moon" class="mr-2 text-muted"></i> Modo Oscuro
+              </div>
+              <label class="d-flex align-items-center" style="cursor: pointer; margin-bottom: 0;">
+                <input type="checkbox" id="settings-theme-toggle" class="mr-2"> Activar
+              </label>
+            </div>
+          </div>
+          
+          <div class="form-group mb-4">
+            <label for="settings-currency">Moneda Base del Sistema</label>
+            <select class="form-select" id="settings-currency">
+              <option value="HNL">Lempiras (L.)</option>
+              <option value="USD">Dólares ($)</option>
+            </select>
+            <p class="note">Aplica al valor comercial y seguros.</p>
+          </div>
+
+          <div class="form-group mb-4">
+            <label class="d-block text-bold mb-2">Control de Revisiones Vehiculares</label>
+            <div class="row">
+              <div class="col-6">
+                <label for="settings-rev-start">Siguiente No. de Orden</label>
+                <input type="number" class="form-control" id="settings-rev-start" min="1" max="99999">
+              </div>
+              <div class="col-6">
+                <label for="settings-rev-suffix">Sufijo de Año</label>
+                <input type="text" class="form-control" id="settings-rev-suffix" maxlength="2">
+              </div>
+            </div>
+            <p class="note">Estos valores auto-incrementan y se usarán al generar el próximo lote.</p>
+          </div>
+
+          <div class="Box Box--red">
+            <div class="Box-header bg-danger-subtle border-bottom-0">
+              <h3 class="Box-title text-red"><i data-lucide="alert-triangle" class="mr-2"></i> Zona de Peligro</h3>
+            </div>
+            <div class="Box-body">
+              <p class="text-small">
+                Al depurar la base de datos se eliminarán <strong>todos los vehículos, reportes de revisión y mantenimientos</strong>. 
+                Esta acción no se puede deshacer. Se guardará un registro de auditoría de este evento.
+              </p>
+              <div class="form-group mb-2">
+                <label for="settings-purge-confirm">Escribí "eliminar-datos" para confirmar:</label>
+                <input type="text" class="form-control" id="settings-purge-confirm" placeholder="eliminar-datos">
+              </div>
+              <button class="btn btn-danger btn-block" id="btn-purge-data" disabled>Purgar Todos los Datos</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="container-xl px-3 px-md-4 px-lg-5 text-center text-muted my-5 pt-4 border-top">
+    <p class="f6 mb-0">Flota C4 &copy; RACSX 2026. Sistema de Control e Inventario de Unidades de Transporte de Alta Disponibilidad.</p>
+    <p class="f6 text-small">Elaborado para la Unidad C4 de Artillería de las Fuerzas Armadas de Honduras.</p>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="mockData.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
