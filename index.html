@@ -33,12 +33,13 @@
       <span class="Label Label--success mr-2" id="connection-status">
         <span class="status-indicator"></span> En línea
       </span>
+      <span class="Label bg-subtle mr-2" id="user-role-label">Sin sesión</span>
       <div class="dropdown">
         <button class="btn btn-sm d-flex align-items-center" id="user-profile-btn" style="border: none; background: transparent; color: white; padding: 0;">
-          <div class="CircleBadge CircleBadge--small bg-canvas-subtle p-0 mr-2" style="width: 24px; height: 24px;">
-            <i data-lucide="user" style="width: 14px; height: 14px; color: var(--color-fg-default);"></i>
+          <div class="CircleBadge CircleBadge--small bg-canvas-subtle p-0 mr-2 profile-avatar">
+            <i data-lucide="user" style="width: 11px; height: 11px; color: var(--color-fg-default);"></i>
           </div>
-          <span class="text-bold" id="user-profile-name">Perfil</span>
+          <span class="text-bold" id="user-profile-name">Administrador</span>
           <i data-lucide="chevron-down" class="ml-1" style="width: 14px; height: 14px;"></i>
         </button>
         <div class="dropdown-menu" id="user-dropdown-menu">
@@ -56,6 +57,33 @@
       </div>
     </div>
   </header>
+
+  <!-- Login local -->
+  <div class="auth-gate" id="auth-gate">
+    <div class="Box auth-box">
+      <div class="Box-header text-center">
+        <h1 class="Box-title f3">Logística C4</h1>
+        <p class="text-small text-muted mb-0">Autenticación local offline</p>
+      </div>
+      <form class="Box-body" id="form-login">
+        <div class="flash flash-error d-none mb-3" id="login-error"></div>
+        <div class="form-group">
+          <label for="login-username">Usuario</label>
+          <input type="text" class="form-control" id="login-username" autocomplete="username" required autofocus>
+        </div>
+        <div class="form-group">
+          <label for="login-password">Contraseña</label>
+          <input type="password" class="form-control" id="login-password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="btn-login">
+          <i data-lucide="log-in" class="mr-1"></i> Iniciar sesión
+        </button>
+        <p class="text-small text-muted mt-3 mb-0">
+          Admin inicial de desarrollo: <span class="text-mono">admin</span> / <span class="text-mono">TuPasswordSeguro123</span>
+        </p>
+      </form>
+    </div>
+  </div>
 
   <!-- Navigation Sub-header (GitHub Style Repository Tabs) -->
   <nav class="UnderlineNav" aria-label="Navegación principal">
@@ -96,42 +124,18 @@
         <div class="Layout-main">
           
           <!-- Stat Cards Row -->
-          <div class="grid-stats mb-4">
-            <div class="Box Box--blue p-3 d-flex align-items-center">
-              <div class="CircleBadge CircleBadge--small bg-blue-light mr-3">
-                <i data-lucide="car" class="text-blue"></i>
-              </div>
-              <div>
-                <span class="text-small text-muted d-block">Total Unidades</span>
-                <span class="f2 text-bold" id="stat-total-vehicles">0</span>
-              </div>
-            </div>
-            <div class="Box Box--green p-3 d-flex align-items-center">
+          <div class="Box Box--green p-3 d-flex align-items-center justify-content-between mb-4 fleet-availability-card">
+            <div class="d-flex align-items-center">
               <div class="CircleBadge CircleBadge--small bg-green-light mr-3">
-                <i data-lucide="check-circle" class="text-green"></i>
+                <i data-lucide="activity" class="text-green"></i>
               </div>
               <div>
-                <span class="text-small text-muted d-block">Operativos</span>
-                <span class="f2 text-bold" id="stat-operativos">0</span>
+                <span class="text-small text-muted d-block">Disponibilidad de Flota</span>
+                <span class="f1 text-bold" id="stat-fleet-availability">0%</span>
               </div>
             </div>
-            <div class="Box Box--yellow p-3 d-flex align-items-center">
-              <div class="CircleBadge CircleBadge--small bg-yellow-light mr-3">
-                <i data-lucide="alert-triangle" class="text-yellow"></i>
-              </div>
-              <div>
-                <span class="text-small text-muted d-block">Recuperables</span>
-                <span class="f2 text-bold" id="stat-recuperables">0</span>
-              </div>
-            </div>
-            <div class="Box Box--red p-3 d-flex align-items-center">
-              <div class="CircleBadge CircleBadge--small bg-red-light mr-3">
-                <i data-lucide="x-circle" class="text-red"></i>
-              </div>
-              <div>
-                <span class="text-small text-muted d-block">Chatarras</span>
-                <span class="f2 text-bold" id="stat-chatarras">0</span>
-              </div>
+            <div class="text-right text-small text-muted">
+              <span id="stat-fleet-availability-detail">0 operativas / 0 unidades</span>
             </div>
           </div>
 
@@ -225,6 +229,26 @@
         </div>
       </div>
 
+
+      <div class="grid-stats mb-4" id="fleet-summary-stats">
+        <div class="Box Box--blue p-3 d-flex align-items-center">
+          <div class="CircleBadge CircleBadge--small bg-blue-light mr-3"><i data-lucide="car" class="text-blue"></i></div>
+          <div><span class="text-small text-muted d-block">Total Unidades</span><span class="f2 text-bold" id="stat-total-vehicles">0</span></div>
+        </div>
+        <div class="Box Box--green p-3 d-flex align-items-center">
+          <div class="CircleBadge CircleBadge--small bg-green-light mr-3"><i data-lucide="check-circle" class="text-green"></i></div>
+          <div><span class="text-small text-muted d-block">Operativas</span><span class="f2 text-bold" id="stat-operativos">0</span></div>
+        </div>
+        <div class="Box Box--yellow p-3 d-flex align-items-center">
+          <div class="CircleBadge CircleBadge--small bg-yellow-light mr-3"><i data-lucide="alert-triangle" class="text-yellow"></i></div>
+          <div><span class="text-small text-muted d-block">Recuperables</span><span class="f2 text-bold" id="stat-recuperables">0</span></div>
+        </div>
+        <div class="Box Box--red p-3 d-flex align-items-center">
+          <div class="CircleBadge CircleBadge--small bg-red-light mr-3"><i data-lucide="x-circle" class="text-red"></i></div>
+          <div><span class="text-small text-muted d-block">Chatarras</span><span class="f2 text-bold" id="stat-chatarras">0</span></div>
+        </div>
+      </div>
+
       <!-- Filters & Search Toolbar -->
       <div class="Box p-3 bg-subtle border-bottom-0 rounded-bottom-0 d-flex flex-wrap gap-2 align-items-center">
         <div class="flex-auto d-flex gap-2">
@@ -239,20 +263,26 @@
             </div>
           </div>
         </div>
-        <div class="d-flex gap-2 flex-wrap">
-          <select class="form-select select-sm" id="filter-type" aria-label="Filtrar por tipo">
-            <option value="">Todos los tipos</option>
-            <option value="Camión">Camión</option>
-            <option value="Pickup">Pickup</option>
-            <option value="Jeep">Jeep</option>
-            <option value="Batalla">Batalla</option>
-          </select>
-          <select class="form-select select-sm" id="filter-operatividad" aria-label="Filtrar por operatividad">
-            <option value="">Todas las operatividades</option>
-            <option value="Operativo">Operativo</option>
-            <option value="Recuperable">Recuperable</option>
-            <option value="Chatarra">Chatarra</option>
-          </select>
+        <div class="fleet-filter-panel w-full">
+          <div class="filter-row">
+            <span class="filter-label">Estado</span>
+            <div class="pill-group" id="filter-operatividad" aria-label="Filtrar por estado">
+              <button type="button" class="filter-pill active" data-filter="all">Todos</button>
+              <button type="button" class="filter-pill" data-filter="Operativo">Operativas</button>
+              <button type="button" class="filter-pill" data-filter="Recuperable">Recuperables</button>
+              <button type="button" class="filter-pill" data-filter="Chatarra">Chatarras</button>
+              <span class="filter-divider" aria-hidden="true"></span>
+              <button type="button" class="filter-pill" data-filter="maintenance">En mantenimiento</button>
+            </div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">Tipo</span>
+            <div class="pill-group" id="filter-type-pills" aria-label="Filtrar por tipo de vehículo"></div>
+          </div>
+          <div class="filter-row filter-row-selects">
+            <select class="form-select select-sm" id="filter-brand" aria-label="Filtrar por marca"><option value="">Todas las marcas</option></select>
+            <select class="form-select select-sm" id="filter-model" aria-label="Filtrar por modelo"><option value="">Todos los modelos</option></select>
+          </div>
         </div>
       </div>
 
@@ -838,9 +868,27 @@
           <div>
             <button class="btn btn-danger" id="btn-delete-vehicle-card"><i data-lucide="trash-2" class="mr-1"></i> Eliminar Unidad</button>
             <button class="btn" id="btn-edit-vehicle-card"><i data-lucide="edit" class="mr-1"></i> Editar Unidad</button>
+            <button class="btn" id="btn-maintenance-vehicle-card"><i data-lucide="wrench" class="mr-1"></i> Reportar Mantenimiento</button>
           </div>
           <button class="btn btn-primary" data-close-modal="modal-card">Cerrar Ficha</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <!-- ==================== MODAL: DETALLE MANTENIMIENTO ==================== -->
+  <div class="modal-backdrop" id="modal-maintenance-detail">
+    <div class="modal-wrapper">
+      <div class="Box modal-box">
+        <div class="Box-header">
+          <button class="Box-btn-close btn-octicon float-right" type="button" aria-label="Cerrar modal" data-close-modal="modal-maintenance-detail">
+            <i data-lucide="x"></i>
+          </button>
+          <h3 class="Box-title">Detalle de Mantenimiento</h3>
+        </div>
+        <div class="Box-body" id="maintenance-detail-content"></div>
       </div>
     </div>
   </div>

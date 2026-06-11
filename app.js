@@ -25,6 +25,211 @@ let state = {
   }
 };
 
+let authState = {
+  user: null,
+  sessionId: null
+};
+
+function hasPermission(permission) {
+  if (!authState.user) return false;
+  if (authState.user.role === 'SUPERADMIN') return true;
+  return authState.user.permissions?.[permission] === true;
+}
+
+function requirePermission(permission, actionLabel = 'esta acción') {
+  if (hasPermission(permission)) return true;
+  alert(`Tu usuario no tiene permiso para ${actionLabel}.`);
+  writeAuditLog('ERROR', `Permiso denegado: ${permission} (${actionLabel})`);
+  return false;
+}
+
+async function apiRequest(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    },
+    ...options
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `Error HTTP ${response.status}`);
+  }
+  return data;
+}
+
+function showAuthGate(message = '') {
+  const gate = document.getElementById('auth-gate');
+  const error = document.getElementById('login-error');
+  if (gate) gate.classList.remove('d-none');
+  if (error && message) {
+    error.textContent = message;
+    error.classList.remove('d-none');
+  }
+}
+
+function hideAuthGate() {
+  const gate = document.getElementById('auth-gate');
+  if (gate) gate.classList.add('d-none');
+}
+
+function applyAuthUi() {
+  const username = authState.user?.username || authState.user?.name || 'Sin sesión';
+  state.settings.username = username;
+
+  const profileName = document.getElementById('user-profile-name');
+  const roleLabel = document.getElementById('user-role-label');
+  const connectionStatus = document.getElementById('connection-status');
+  if (profileName) profileName.textContent = username;
+  if (roleLabel) roleLabel.textContent = authState.user?.role || 'Sin sesión';
+  if (connectionStatus) connectionStatus.innerHTML = '<span class="status-indicator"></span> Local';
+
+  document.querySelectorAll('[data-requires-permission]').forEach(element => {
+    const permission = element.getAttribute('data-requires-permission');
+    element.disabled = !hasPermission(permission);
+    element.classList.toggle('disabled', !hasPermission(permission));
+  });
+}
+
+async function loadCurrentSession() {
+  try {
+    const session = await apiRequest('/api/session');
+    authState.user = session.user;
+    authState.sessionId = session.sessionId;
+    hideAuthGate();
+    applyAuthUi();
+    return true;
+  } catch {
+    showAuthGate();
+    return false;
+  }
+}
+
+async function writeAuditLog(type, content) {
+  if (!authState.user || !authState.sessionId) return;
+
+  try {
+    await apiRequest('/api/log', {
+      method: 'POST',
+      body: JSON.stringify({
+        type,
+        content,
+        user: authState.user.username,
+        sessionId: authState.sessionId
+      })
+    });
+  } catch (error) {
+    console.warn('No se pudo escribir el log local.', error);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function safeJsArg(value) {
+  return JSON.stringify(String(value ?? ''));
+}
+
+function safeInlineJsArg(value) {
+  return escapeHtml(safeJsArg(value));
+}
+
+function refreshIcons() {
+  if (window.lucide && typeof lucide.createIcons === 'function') {
+    lucide.createIcons();
+  }
+}
+
+function safeJsonParse(rawValue, fallbackValue, storageKey) {
+  if (!rawValue) return fallbackValue;
+
+  try {
+    return JSON.parse(rawValue);
+  } catch (error) {
+    console.warn(`No se pudo leer ${storageKey}; se usará un valor seguro.`, error);
+    return fallbackValue;
+  }
+}
+
+function normalizeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeNumber(value, fallbackValue = 0) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallbackValue;
+}
+
+function normalizeOperatividad(value) {
+  const normalizedValue = String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z]+/g, ' ')
+    .trim();
+
+  const tokens = normalizedValue.split(/\s+/).filter(Boolean);
+
+  if (tokens.includes('IRRECUPERABLE')) return 'Chatarra';
+  if (tokens.includes('RECUPERABLE')) return 'Recuperable';
+  if (tokens.includes('OPERATIVO') && !tokens.includes('INOPERATIVO')) return 'Operativo';
+
+  return 'Operativo';
+}
+
+function normalizeVehicle(vehicle) {
+  return {
+    ...vehicle,
+    operatividad: normalizeOperatividad(vehicle?.operatividad)
+  };
+}
+
+function getFleetStats() {
+  const total = state.vehicles.length;
+  const operativos = state.vehicles.filter(v => normalizeOperatividad(v.operatividad) === 'Operativo').length;
+  const recuperables = state.vehicles.filter(v => normalizeOperatividad(v.operatividad) === 'Recuperable').length;
+  const chatarras = state.vehicles.filter(v => normalizeOperatividad(v.operatividad) === 'Chatarra').length;
+  const availability = total > 0 ? Math.round((operativos / total) * 100) : 0;
+
+  return { total, operativos, recuperables, chatarras, availability };
+}
+
+function formatMaintenanceDate(dateValue) {
+  return String(dateValue || '').split('-').reverse().join('/');
+}
+
+function getMaintenanceWorkSummary(m) {
+  const works = [];
+  if (m.oilMotor) works.push('Aceite motor');
+  if (m.oilGear) works.push('Aceite caja');
+  if (m.oil4x4) works.push('Aceite transmisión 4x4');
+  if (m.oilDiff) works.push('Aceite diferencial');
+  if (m.other) works.push('Otros trabajos');
+  return works.length ? works.join(', ') : 'Sin trabajos detallados';
+}
+
+function formatDateDDMMYYYY(dateValue) {
+  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
+function addYears(dateValue, years) {
+  const date = dateValue instanceof Date ? new Date(dateValue) : new Date(dateValue);
+  date.setFullYear(date.getFullYear() + years);
+  return date;
+}
+
 // Cargar estado inicial
 function loadState() {
   const localVehicles = localStorage.getItem('flotahub_vehicles');
@@ -33,16 +238,17 @@ function loadState() {
   const localAuditLog = localStorage.getItem('flotahub_audit_logs');
   const localSettings = localStorage.getItem('flotahub_settings');
 
-  if (localSettings) {
-    state.settings = { ...state.settings, ...JSON.parse(localSettings) };
-  }
+  state.settings = {
+    ...state.settings,
+    ...safeJsonParse(localSettings, {}, 'flotahub_settings')
+  };
   applyTheme();
 
   if (localVehicles) {
-    state.vehicles = JSON.parse(localVehicles);
-    state.maintenances = localMaintenances ? JSON.parse(localMaintenances) : [];
-    state.inspections = localInspections ? JSON.parse(localInspections) : [];
-    state.auditLog = localAuditLog ? JSON.parse(localAuditLog) : [];
+    state.vehicles = normalizeArray(safeJsonParse(localVehicles, [], 'flotahub_vehicles')).map(normalizeVehicle);
+    state.maintenances = normalizeArray(safeJsonParse(localMaintenances, [], 'flotahub_maintenances'));
+    state.inspections = normalizeArray(safeJsonParse(localInspections, [], 'flotahub_inspections'));
+    state.auditLog = normalizeArray(safeJsonParse(localAuditLog, [], 'flotahub_audit_logs'));
   } else {
     // Estado inicial limpio
     state.vehicles = [];
@@ -90,12 +296,13 @@ function logAction(actionDescription) {
   state.auditLog.unshift(logEntry); // Lo más nuevo al inicio
   saveStateToStorage();
   renderAuditLogs();
+  writeAuditLog('ACTION', actionDescription);
 }
 
 // Cargar Datos de Demostración Realistas (Acción explícita del usuario)
 function loadDemoData() {
   if (confirm("¿Estás seguro de que querés cargar los datos de demostración? Esto reemplazará el inventario actual con unidades reales de prueba (TOYOTA Hilux, UNIMOG, etc.).")) {
-    state.vehicles = [...SEED_VEHICLES];
+    state.vehicles = [...SEED_VEHICLES].map(normalizeVehicle);
     state.maintenances = [...SEED_MAINTENANCES];
     state.auditLog = [...SEED_AUDIT_LOG];
     state.inspections = [];
@@ -175,15 +382,11 @@ let operatividadChartInstance = null;
 
 function initDashboard() {
   // 1. Calcular estadísticas
-  const total = state.vehicles.length;
-  const operativos = state.vehicles.filter(v => v.operatividad === 'Operativo').length;
-  const recuperables = state.vehicles.filter(v => v.operatividad === 'Recuperable').length;
-  const chatarras = state.vehicles.filter(v => v.operatividad === 'Chatarra').length;
+  const { total, operativos, recuperables, chatarras, availability } = getFleetStats();
 
-  document.getElementById('stat-total-vehicles').textContent = total;
-  document.getElementById('stat-operativos').textContent = operativos;
-  document.getElementById('stat-recuperables').textContent = recuperables;
-  document.getElementById('stat-chatarras').textContent = chatarras;
+  updateFleetStats();
+  document.getElementById('stat-fleet-availability').textContent = `${availability}%`;
+  document.getElementById('stat-fleet-availability-detail').textContent = `${operativos} operativas / ${total} unidades`;
 
   // 2. Renderizar gráfico (Chart.js)
   renderOperatividadChart(operativos, recuperables, chatarras);
@@ -198,8 +401,27 @@ function initDashboard() {
   updateCounters();
 }
 
+function updateFleetStats() {
+  const { total, operativos, recuperables, chatarras } = getFleetStats();
+  const totalEl = document.getElementById('stat-total-vehicles');
+  const operEl = document.getElementById('stat-operativos');
+  const recEl = document.getElementById('stat-recuperables');
+  const chatEl = document.getElementById('stat-chatarras');
+
+  if (totalEl) totalEl.textContent = total;
+  if (operEl) operEl.textContent = operativos;
+  if (recEl) recEl.textContent = recuperables;
+  if (chatEl) chatEl.textContent = chatarras;
+}
+
 function renderOperatividadChart(operativos, recuperables, chatarras) {
+  if (!window.Chart) {
+    console.warn('Chart.js no está disponible; se omite el gráfico de operatividad.');
+    return;
+  }
+
   const ctx = document.getElementById('operatividadChart').getContext('2d');
+  const legendColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#ffffff' : '#24292f';
   
   // Si ya existe un gráfico, destruirlo para evitar superposición
   if (operatividadChartInstance) {
@@ -221,7 +443,13 @@ function renderOperatividadChart(operativos, recuperables, chatarras) {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom' }
+          legend: {
+            position: 'bottom',
+            labels: {
+              font: { family: 'Inter', size: 12 },
+              color: legendColor
+            }
+          }
         }
       }
     });
@@ -255,7 +483,7 @@ function renderOperatividadChart(operativos, recuperables, chatarras) {
           position: 'bottom',
           labels: {
             font: { family: 'Inter', size: 12 },
-            color: '#24292f'
+            color: legendColor
           }
         }
       },
@@ -285,11 +513,12 @@ function generateMaintenanceAlerts() {
 
     const kmSinceLastChange = vehicle.km - lastOilChangeKm;
 
-    if (vehicle.operatividad !== 'Chatarra') {
+    if (normalizeOperatividad(vehicle.operatividad) !== 'Chatarra') {
       if (kmSinceLastChange >= 5000) {
         alerts.push({
           type: 'danger',
           icon: 'droplet',
+          vehicleId: vehicle.id,
           title: `Cambio de aceite VENCIDO: ${vehicle.rhe}`,
           description: `Han transcurrido ${kmSinceLastChange.toLocaleString()} km desde el último cambio de aceite de motor. Kilometraje actual: ${vehicle.km.toLocaleString()} km.`
         });
@@ -297,6 +526,7 @@ function generateMaintenanceAlerts() {
         alerts.push({
           type: 'warning',
           icon: 'alert-circle',
+          vehicleId: vehicle.id,
           title: `Cambio de aceite próximo: ${vehicle.rhe}`,
           description: `Faltan ${(5000 - kmSinceLastChange).toLocaleString()} km para el cambio de aceite de motor.`
         });
@@ -307,6 +537,7 @@ function generateMaintenanceAlerts() {
         alerts.push({
           type: 'warning',
           icon: 'shield-alert',
+          vehicleId: vehicle.id,
           title: `Sin seguro activo: ${vehicle.rhe}`,
           description: `El vehículo no cuenta con póliza de seguro registrada.`
         });
@@ -320,22 +551,32 @@ function generateMaintenanceAlerts() {
     emptyAlerts.classList.add('d-none');
     alerts.forEach(alert => {
       const li = document.createElement('li');
-      li.className = `Box-row Box-row--hover d-flex align-items-start p-3`;
+      li.className = `Box-row Box-row--hover d-flex align-items-start p-3 maintenance-alert-item`;
+      li.setAttribute('role', 'button');
+      li.setAttribute('tabindex', '0');
+      li.setAttribute('aria-label', `Abrir ficha técnica de ${alert.title}`);
+      li.addEventListener('click', () => showVehicleCard(alert.vehicleId));
+      li.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          showVehicleCard(alert.vehicleId);
+        }
+      });
       
       const badgeClass = alert.type === 'danger' ? 'bg-red-light text-red' : 'bg-yellow-light text-yellow';
       
       li.innerHTML = `
-        <div class="CircleBadge CircleBadge--small ${badgeClass} mr-2 flex-shrink-0" style="width:32px; height:32px;">
-          <i data-lucide="${alert.icon}" style="width:16px; height:16px;"></i>
+        <div class="CircleBadge CircleBadge--small ${badgeClass} mr-2">
+          <i data-lucide="${escapeHtml(alert.icon)}" style="width:16px; height:16px;"></i>
         </div>
         <div class="flex-auto">
-          <div class="text-bold text-small text-fg-default">${alert.title}</div>
-          <div class="text-small text-muted">${alert.description}</div>
+          <div class="text-bold text-small text-fg-default">${escapeHtml(alert.title)}</div>
+          <div class="text-small text-muted">${escapeHtml(alert.description)}</div>
         </div>
       `;
       alertsList.appendChild(li);
     });
-    lucide.createIcons();
+    refreshIcons();
   }
 }
 
@@ -364,14 +605,14 @@ function renderAuditLogs() {
       <div class="audit-item">
         <i data-lucide="git-commit" class="text-muted flex-shrink-0 mt-1" style="width:16px; height:16px;"></i>
         <div class="flex-auto">
-          <div class="text-small">${log.action}</div>
+          <div class="text-small">${escapeHtml(log.action)}</div>
           <div class="text-mono text-small text-muted" style="font-size: 10px;">${dateFormatted}</div>
         </div>
       </div>
     `;
     list.appendChild(li);
   });
-  lucide.createIcons();
+  refreshIcons();
 }
 
 function updateCounters() {
@@ -385,22 +626,85 @@ function updateCounters() {
 
 const fleetTableBody = document.getElementById('fleet-table-body');
 const searchInput = document.getElementById('search-query');
-const filterType = document.getElementById('filter-type');
 const filterOperatividad = document.getElementById('filter-operatividad');
+const filterTypePills = document.getElementById('filter-type-pills');
+const filterBrand = document.getElementById('filter-brand');
+const filterModel = document.getElementById('filter-model');
+const selectedTypeFilters = new Set();
+let selectedFleetStatusFilter = 'all';
 
 // Escuchar cambios de filtros
 searchInput.addEventListener('input', renderFleetTable);
-filterType.addEventListener('change', renderFleetTable);
-filterOperatividad.addEventListener('change', renderFleetTable);
+filterBrand.addEventListener('change', renderFleetTable);
+filterModel.addEventListener('change', renderFleetTable);
+filterOperatividad.addEventListener('click', (event) => {
+  const button = event.target.closest('.filter-pill');
+  if (!button) return;
+
+  selectedFleetStatusFilter = button.dataset.filter;
+  filterOperatividad.querySelectorAll('.filter-pill').forEach(pill => pill.classList.toggle('active', pill === button));
+  renderFleetTable();
+});
+filterTypePills.addEventListener('click', (event) => {
+  const button = event.target.closest('.filter-pill');
+  if (!button) return;
+
+  const type = button.dataset.type;
+  if (type === 'all') {
+    selectedTypeFilters.clear();
+  } else if (selectedTypeFilters.has(type)) {
+    selectedTypeFilters.delete(type);
+  } else {
+    selectedTypeFilters.add(type);
+  }
+
+  syncTypePills();
+  renderFleetTable();
+});
 document.getElementById('btn-search-clear').addEventListener('click', () => {
   searchInput.value = '';
   renderFleetTable();
 });
 
+function syncTypePills() {
+  filterTypePills.querySelectorAll('.filter-pill').forEach(pill => {
+    const isAll = pill.dataset.type === 'all';
+    pill.classList.toggle('active', isAll ? selectedTypeFilters.size === 0 : selectedTypeFilters.has(pill.dataset.type));
+  });
+}
+
+function populateFleetFilters() {
+  const currentBrand = filterBrand.value;
+  const currentModel = filterModel.value;
+  const types = [...new Set(state.vehicles
+    .map(v => String(v.type || '').trim())
+    .filter(type => type && type === type.toUpperCase()))]
+    .sort((a, b) => a.localeCompare(b));
+  const brands = [...new Set(state.vehicles.map(v => v.marca).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const models = [...new Set(state.vehicles
+    .filter(v => !filterBrand.value || v.marca === filterBrand.value)
+    .map(v => v.modelo)
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+  filterTypePills.innerHTML = `<button type="button" class="filter-pill" data-type="all">Todos</button>` +
+    types.map(type => `<button type="button" class="filter-pill" data-type="${escapeHtml(type)}">${escapeHtml(type)}</button>`).join('');
+  selectedTypeFilters.forEach(type => { if (!types.includes(type)) selectedTypeFilters.delete(type); });
+  syncTypePills();
+
+  filterBrand.innerHTML = '<option value="">Todas las marcas</option>' + brands.map(brand => `<option value="${escapeHtml(brand)}">${escapeHtml(brand)}</option>`).join('');
+  filterBrand.value = brands.includes(currentBrand) ? currentBrand : '';
+
+  filterModel.innerHTML = '<option value="">Todos los modelos</option>' + models.map(model => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`).join('');
+  filterModel.value = models.includes(currentModel) ? currentModel : '';
+}
+
 function renderFleetTable() {
+  populateFleetFilters();
+  updateFleetStats();
+
   const query = searchInput.value.toLowerCase().trim();
-  const typeVal = filterType.value;
-  const operVal = filterOperatividad.value;
+  const brandVal = filterBrand.value;
+  const modelVal = filterModel.value;
 
   fleetTableBody.innerHTML = '';
 
@@ -412,10 +716,15 @@ function renderFleetTable() {
       v.chasis.toLowerCase().includes(query) ||
       v.motor.toLowerCase().includes(query);
 
-    const matchType = !typeVal || v.type === typeVal;
-    const matchOper = !operVal || v.operatividad === operVal;
+    const matchType = selectedTypeFilters.size === 0 || selectedTypeFilters.has(v.type);
+    const matchBrand = !brandVal || v.marca === brandVal;
+    const matchModel = !modelVal || v.modelo === modelVal;
+    const normalizedOperatividad = normalizeOperatividad(v.operatividad);
+    const hasMaintenance = state.maintenances.some(m => m.vehicleId === v.id);
+    const matchOper = selectedFleetStatusFilter === 'all' ||
+      (selectedFleetStatusFilter === 'maintenance' ? hasMaintenance : normalizedOperatividad === selectedFleetStatusFilter);
 
-    return matchQuery && matchType && matchOper;
+    return matchQuery && matchType && matchBrand && matchModel && matchOper;
   });
 
   if (filtered.length === 0) {
@@ -427,7 +736,7 @@ function renderFleetTable() {
         </td>
       </tr>
     `;
-    lucide.createIcons();
+    refreshIcons();
     return;
   }
 
@@ -437,32 +746,36 @@ function renderFleetTable() {
     tr.style.cursor = 'pointer';
 
     // Determinar badge de operatividad
+    const normalizedOperatividad = normalizeOperatividad(v.operatividad);
     let badgeClass = 'Label--success';
-    if (v.operatividad === 'Recuperable') badgeClass = 'Label--attention';
-    if (v.operatividad === 'Chatarra') badgeClass = 'Label--danger';
+    if (normalizedOperatividad === 'Recuperable') badgeClass = 'Label--attention';
+    if (normalizedOperatividad === 'Chatarra') badgeClass = 'Label--danger';
 
     tr.innerHTML = `
-      <td class="text-bold text-mono">${v.rhe}</td>
-      <td>${v.type}</td>
+      <td class="text-bold text-mono">${escapeHtml(v.rhe)}</td>
+      <td>${escapeHtml(v.type)}</td>
       <td>
-        <span class="text-bold text-blue">${v.marca}</span>
-        <span class="text-muted d-block text-small">${v.modelo}</span>
+        <span class="text-bold text-blue">${escapeHtml(v.marca)}</span>
+        <span class="text-muted d-block text-small">${escapeHtml(v.modelo)}</span>
       </td>
       <td class="text-mono text-small">
-        C: ${v.chasis}<br>
-        M: ${v.motor}
+        C: ${escapeHtml(v.chasis)}<br>
+        M: ${escapeHtml(v.motor)}
       </td>
-      <td>${v.year}</td>
-      <td><span class="Label ${badgeClass}">${v.operatividad}</span></td>
+      <td>${escapeHtml(v.year)}</td>
+      <td><span class="Label ${badgeClass}">${escapeHtml(normalizedOperatividad)}</span></td>
       <td class="text-right" onclick="event.stopPropagation();">
         <div class="d-flex gap-2 justify-content-end">
-          <button class="btn btn-sm" onclick="showVehicleCard('${v.id}')" title="Ver Ficha Técnica">
+          <button class="btn btn-sm" onclick="showVehicleCard(${safeInlineJsArg(v.id)})" title="Ver Ficha Técnica">
             <i data-lucide="eye" style="width:14px; height:14px;"></i>
           </button>
-          <button class="btn btn-sm" onclick="editVehicle('${v.id}')" title="Editar">
+          <button class="btn btn-sm" onclick="openMaintenanceModal(${safeInlineJsArg(v.id)})" title="Reportar Mantenimiento">
+            <i data-lucide="wrench" style="width:14px; height:14px;"></i>
+          </button>
+          <button class="btn btn-sm" onclick="editVehicle(${safeInlineJsArg(v.id)})" title="Editar">
             <i data-lucide="edit" style="width:14px; height:14px;"></i>
           </button>
-          <button class="btn btn-sm btn-danger" onclick="deleteVehicle('${v.id}')" title="Eliminar">
+          <button class="btn btn-sm btn-danger" onclick="deleteVehicle(${safeInlineJsArg(v.id)})" title="Eliminar">
             <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
           </button>
         </div>
@@ -476,7 +789,7 @@ function renderFleetTable() {
 
     fleetTableBody.appendChild(tr);
   });
-  lucide.createIcons();
+  refreshIcons();
 }
 
 // Sub-pestañas del Formulario del Vehículo (Modal)
@@ -555,7 +868,7 @@ vehicleForm.addEventListener('submit', (e) => {
     chasis: document.getElementById('v-chasis').value.trim().toUpperCase(),
     motor: document.getElementById('v-motor').value.trim().toUpperCase(),
     year: parseInt(document.getElementById('v-year').value),
-    operatividad: document.getElementById('v-operatividad').value,
+    operatividad: normalizeOperatividad(document.getElementById('v-operatividad').value),
     categoria: document.getElementById('v-categoria').value,
     situacion: document.getElementById('v-situacion').value.trim(),
 
@@ -656,7 +969,7 @@ function openVehicleModal(vehicleId = null) {
       document.getElementById('v-chasis').value = v.chasis;
       document.getElementById('v-motor').value = v.motor;
       document.getElementById('v-year').value = v.year;
-      document.getElementById('v-operatividad').value = v.operatividad;
+      document.getElementById('v-operatividad').value = normalizeOperatividad(v.operatividad);
       document.getElementById('v-categoria').value = v.categoria;
       document.getElementById('v-situacion').value = v.situacion;
 
@@ -745,9 +1058,10 @@ function showVehicleCard(vehicleId) {
   const modalContent = document.getElementById('card-content');
   
   // Badges superiores
+  const normalizedOperatividad = normalizeOperatividad(v.operatividad);
   let stateBadge = `<span class="Label Label--success">Operativo</span>`;
-  if (v.operatividad === 'Recuperable') stateBadge = `<span class="Label Label--attention">Recuperable</span>`;
-  if (v.operatividad === 'Chatarra') stateBadge = `<span class="Label Label--danger">Chatarra</span>`;
+  if (normalizedOperatividad === 'Recuperable') stateBadge = `<span class="Label Label--attention">Recuperable</span>`;
+  if (normalizedOperatividad === 'Chatarra') stateBadge = `<span class="Label Label--danger">Chatarra</span>`;
 
   let catBadge = `<span class="Label bg-subtle text-muted">Táctico</span>`;
   if (v.categoria === 'Administrativo') catBadge = `<span class="Label text-blue" style="background-color: var(--color-accent-subtle); border-color: var(--color-accent-border);">Administrativo</span>`;
@@ -761,8 +1075,8 @@ function showVehicleCard(vehicleId) {
         <span class="text-bold d-block mb-1 text-green"><i data-lucide="shield" class="mr-1"></i> Seguro Activo</span>
         <div class="row">
           <div class="col-6">
-            <strong>Aseguradora:</strong> ${v.insuranceCo}<br>
-            <strong>Número de Póliza:</strong> <span class="text-mono">${v.insuranceNum}</span>
+            <strong>Aseguradora:</strong> ${escapeHtml(v.insuranceCo)}<br>
+            <strong>Número de Póliza:</strong> <span class="text-mono">${escapeHtml(v.insuranceNum)}</span>
           </div>
           <div class="col-6">
             <strong>Valor Asegurado:</strong> ${formatCurrency(v.insuranceValue)}
@@ -774,9 +1088,9 @@ function showVehicleCard(vehicleId) {
 
   // Botón especial para generar revisión inmediata
   let btnRevisionInmediata = '';
-  if (v.operatividad !== 'Chatarra') {
+  if (normalizedOperatividad !== 'Chatarra') {
     btnRevisionInmediata = `
-      <button class="btn btn-sm btn-outline-purple w-full mt-3" onclick="emitSingleRevision('${v.id}')">
+      <button class="btn btn-sm btn-outline-purple w-full mt-3" onclick="emitSingleRevision(${safeInlineJsArg(v.id)})">
         <i data-lucide="file-signature" class="mr-1"></i> Emitir Hoja de Revisión Inmediata
       </button>
     `;
@@ -788,104 +1102,126 @@ function showVehicleCard(vehicleId) {
     `;
   }
 
+  const vehicleMaintenances = state.maintenances.filter(m => m.vehicleId === v.id);
+  const maintenanceHistoryHTML = vehicleMaintenances.length ? `
+    <ul class="Box-row-list">
+      ${vehicleMaintenances.map(m => `
+        <li class="Box-row maintenance-history-item" onclick="showMaintenanceDetail(${safeInlineJsArg(m.id)})" tabindex="0">
+          <div class="d-flex justify-content-between gap-2">
+            <strong>${escapeHtml(formatMaintenanceDate(m.date))} · ${escapeHtml(Number(m.km || 0).toLocaleString())} km</strong>
+            <span class="Label">Ver detalle</span>
+          </div>
+          <div class="text-small text-muted mt-1">${escapeHtml(getMaintenanceWorkSummary(m))}</div>
+        </li>
+      `).join('')}
+    </ul>
+  ` : '<div class="blankslate p-4 text-center text-muted">No hay mantenimientos registrados para esta unidad.</div>';
+
   modalContent.innerHTML = `
-    <div class="Layout Layout--flowRow-untilmd">
-      <!-- Ficha Técnica - General e Identificación -->
-      <div class="Layout-main p-0">
-        
-        <h4 class="card-section-title">1. Identificación y Ubicación</h4>
-        <ul class="spec-list mb-3">
-          <li class="spec-item"><span class="spec-label">RHE (Placa)</span><span class="spec-val text-mono text-bold">${v.rhe}</span></li>
-          <li class="spec-item"><span class="spec-label">Tipo</span><span class="spec-val">${v.type}</span></li>
-          <li class="spec-item"><span class="spec-label">Marca / Modelo</span><span class="spec-val text-bold">${v.marca} / ${v.modelo}</span></li>
-          <li class="spec-item"><span class="spec-label">Color</span><span class="spec-val">${v.color || 'N/A'}</span></li>
-          <li class="spec-item"><span class="spec-label">No. Chasis (VIN)</span><span class="spec-val text-mono">${v.chasis}</span></li>
-          <li class="spec-item"><span class="spec-label">No. Motor</span><span class="spec-val text-mono">${v.motor}</span></li>
-          <li class="spec-item"><span class="spec-label">Año de Fabricación</span><span class="spec-val">${v.year}</span></li>
-          <li class="spec-item"><span class="spec-label">Categoría</span><span class="spec-val">${v.categoria}</span></li>
-          <li class="spec-item"><span class="spec-label">Situación</span><span class="spec-val">${v.situacion}</span></li>
-        </ul>
-
-        <h4 class="card-section-title">2. Especificaciones Mecánicas</h4>
-        <div class="card-grid">
-          <div>
-            <ul class="spec-list">
-              <li class="spec-item"><span class="spec-label">Kilometraje</span><span class="spec-val">${v.km.toLocaleString()} km</span></li>
-              <li class="spec-item"><span class="spec-label">Tamaño Motor</span><span class="spec-val">${v.engineSize} cc</span></li>
-              <li class="spec-item"><span class="spec-label">Cilindros</span><span class="spec-val">${v.cylinders}</span></li>
-              <li class="spec-item"><span class="spec-label">Potencia (HP)</span><span class="spec-val">${v.hp} HP</span></li>
-              <li class="spec-item"><span class="spec-label">Tracción</span><span class="spec-val">${v.traction}</span></li>
-              <li class="spec-item"><span class="spec-label">Transmisión</span><span class="spec-val">${v.transmission}</span></li>
-              <li class="spec-item"><span class="spec-label">Cabina</span><span class="spec-val">${v.cabin === 'Otros' ? v.cabinOther : v.cabin}</span></li>
-              <li class="spec-item"><span class="spec-label">Velocidades</span><span class="spec-val">${v.speeds}</span></li>
-            </ul>
-          </div>
-          <div>
-            <ul class="spec-list">
-              <li class="spec-item"><span class="spec-label">Combustible</span><span class="spec-val">${v.fuel}</span></li>
-              <li class="spec-item"><span class="spec-label">Capacidad de Carga</span><span class="spec-val">${v.load.toLocaleString()} lbs</span></li>
-              <li class="spec-item"><span class="spec-label">Pasajeros c/ Equipo</span><span class="spec-val">${v.passengersEq}</span></li>
-              <li class="spec-item"><span class="spec-label">Pasajeros s/ Equipo</span><span class="spec-val">${v.passengersNoEq}</span></li>
-              <li class="spec-item"><span class="spec-label">Cantidad Tanques</span><span class="spec-val">${v.tanks}</span></li>
-              <li class="spec-item"><span class="spec-label">Capacidad Tanque</span><span class="spec-val">${v.tankCap} gal</span></li>
-              <li class="spec-item"><span class="spec-label">Autonomía Carretera</span><span class="spec-val">${v.autoHwy} km/gal</span></li>
-              <li class="spec-item"><span class="spec-label">Autonomía Mixta</span><span class="spec-val">${v.autoMix} km/gal</span></li>
-            </ul>
-          </div>
-        </div>
-
-        <h4 class="card-section-title">3. Lubricantes y Filtros de Repuesto</h4>
-        <ul class="spec-list">
-          <li class="spec-item"><span class="spec-label">Aceite de Motor</span><span class="spec-val text-mono">${v.oilMotor}</span></li>
-          <li class="spec-item"><span class="spec-label">Aceite de Caja</span><span class="spec-val text-mono">${v.oilGear}</span></li>
-          <li class="spec-item"><span class="spec-label">Aceite Transmisión 4x4</span><span class="spec-val text-mono">${v.oil4x4 || 'N/A'}</span></li>
-          <li class="spec-item"><span class="spec-label">Aceite de Diferencial</span><span class="spec-val text-mono">${v.oilDiff}</span></li>
-          <li class="spec-item"><span class="spec-label">Filtro de Aire</span><span class="spec-val text-mono text-bold">${v.filterAir}</span></li>
-          <li class="spec-item"><span class="spec-label">Filtro de Combustible</span><span class="spec-val text-mono text-bold">${v.filterFuel}</span></li>
-          <li class="spec-item"><span class="spec-label">Número Llanta / Rin</span><span class="spec-val text-mono">Llanta: ${v.tyreNum} / Rin: ${v.rin}</span></li>
-        </ul>
-      </div>
-
-      <!-- Ficha Técnica - Adquisición, Seguros y QR del vehículo -->
-      <div class="Layout-sidebar p-0">
-        <div class="Box p-3 bg-subtle mb-3">
-          <h4 class="m-0 mb-2 font-size-13 font-weight-bold">Código QR Técnico</h4>
-          <div class="d-flex flex-column align-items-center bg-white p-3 border-default rounded-3">
-            <!-- Canvas QR -->
-            <canvas id="card-qr-canvas"></canvas>
-            <span class="text-mono text-muted text-center d-block mt-2" style="font-size:9px; line-height:1.2;">
-              Escanear para verificar la<br>ficha de inventario física
-            </span>
-          </div>
-          ${btnRevisionInmediata}
-        </div>
-
-        <h4 class="card-section-title">4. Datos de Adquisición</h4>
-        <ul class="spec-list mb-3">
-          <li class="spec-item"><span class="spec-label">Forma Adquisición</span><span class="spec-val">${v.acquisition === 'Otros Convenios' ? v.acquisitionOther : v.acquisition}</span></li>
-          <li class="spec-item"><span class="spec-label">Valor Adquisición</span><span class="spec-val text-bold">$ ${v.value.toLocaleString()} USD</span></li>
-        </ul>
-
-        <h4 class="card-section-title">5. Estado de Seguro</h4>
-        <div class="mb-3">
-          ${seguroHTML}
-        </div>
-
-        <h4 class="card-section-title">6. Observaciones del Inventario</h4>
-        <div class="Box p-3 bg-subtle text-small italic">
-          ${v.observations || 'Sin observaciones registradas en el inventario.'}
-        </div>
-      </div>
+    <div class="tabnav mb-3">
+      <nav class="tabnav-tabs card-tabs" aria-label="Secciones de ficha técnica">
+        <button type="button" class="tabnav-tab active" data-card-tab="identificacion">1. Identificación y Ubicación</button>
+        <button type="button" class="tabnav-tab" data-card-tab="mecanica">2. Mecánica y Lubricantes</button>
+        <button type="button" class="tabnav-tab" data-card-tab="adquisicion">3. Adquisición y Seguro</button>
+        <button type="button" class="tabnav-tab" data-card-tab="observaciones">4. Observaciones</button>
+        <button type="button" class="tabnav-tab" data-card-tab="historial">5. Historial de Mantenimiento</button>
+      </nav>
     </div>
+
+    <section class="card-tab-panel active" data-card-panel="identificacion">
+      <h4 class="card-section-title">Identificación y Ubicación</h4>
+      <ul class="spec-list mb-3">
+        <li class="spec-item"><span class="spec-label">RHE (Placa)</span><span class="spec-val text-mono text-bold">${escapeHtml(v.rhe)}</span></li>
+        <li class="spec-item"><span class="spec-label">Tipo</span><span class="spec-val">${escapeHtml(v.type)}</span></li>
+        <li class="spec-item"><span class="spec-label">Marca / Modelo</span><span class="spec-val text-bold">${escapeHtml(v.marca)} / ${escapeHtml(v.modelo)}</span></li>
+        <li class="spec-item"><span class="spec-label">Color</span><span class="spec-val">${escapeHtml(v.color || 'N/A')}</span></li>
+        <li class="spec-item"><span class="spec-label">No. Chasis (VIN)</span><span class="spec-val text-mono">${escapeHtml(v.chasis)}</span></li>
+        <li class="spec-item"><span class="spec-label">No. Motor</span><span class="spec-val text-mono">${escapeHtml(v.motor)}</span></li>
+        <li class="spec-item"><span class="spec-label">Año de Fabricación</span><span class="spec-val">${escapeHtml(v.year)}</span></li>
+        <li class="spec-item"><span class="spec-label">Categoría</span><span class="spec-val">${escapeHtml(v.categoria)}</span></li>
+        <li class="spec-item"><span class="spec-label">Situación</span><span class="spec-val">${escapeHtml(v.situacion)}</span></li>
+      </ul>
+      <div class="Box p-3 bg-subtle card-qr-box">
+        <h4 class="m-0 mb-2 font-size-13 font-weight-bold">Código QR Técnico</h4>
+        <div class="d-flex flex-column align-items-center bg-white p-3 border-default rounded-3">
+          <canvas id="card-qr-canvas"></canvas>
+          <span class="text-mono text-muted text-center d-block mt-2" style="font-size:9px; line-height:1.2;">Escanear para verificar la<br>ficha de inventario física</span>
+        </div>
+        ${btnRevisionInmediata}
+      </div>
+    </section>
+
+    <section class="card-tab-panel" data-card-panel="mecanica">
+      <h4 class="card-section-title">Especificaciones Mecánicas</h4>
+      <div class="card-grid mb-3">
+        <ul class="spec-list">
+          <li class="spec-item"><span class="spec-label">Kilometraje</span><span class="spec-val">${escapeHtml(v.km.toLocaleString())} km</span></li>
+          <li class="spec-item"><span class="spec-label">Tamaño Motor</span><span class="spec-val">${escapeHtml(v.engineSize)} cc</span></li>
+          <li class="spec-item"><span class="spec-label">Cilindros</span><span class="spec-val">${escapeHtml(v.cylinders)}</span></li>
+          <li class="spec-item"><span class="spec-label">Potencia (HP)</span><span class="spec-val">${escapeHtml(v.hp)} HP</span></li>
+          <li class="spec-item"><span class="spec-label">Tracción</span><span class="spec-val">${escapeHtml(v.traction)}</span></li>
+          <li class="spec-item"><span class="spec-label">Transmisión</span><span class="spec-val">${escapeHtml(v.transmission)}</span></li>
+        </ul>
+        <ul class="spec-list">
+          <li class="spec-item"><span class="spec-label">Combustible</span><span class="spec-val">${escapeHtml(v.fuel)}</span></li>
+          <li class="spec-item"><span class="spec-label">Capacidad de Carga</span><span class="spec-val">${escapeHtml(v.load.toLocaleString())} lbs</span></li>
+          <li class="spec-item"><span class="spec-label">Pasajeros c/ Equipo</span><span class="spec-val">${escapeHtml(v.passengersEq)}</span></li>
+          <li class="spec-item"><span class="spec-label">Pasajeros s/ Equipo</span><span class="spec-val">${escapeHtml(v.passengersNoEq)}</span></li>
+          <li class="spec-item"><span class="spec-label">Cantidad Tanques</span><span class="spec-val">${escapeHtml(v.tanks)}</span></li>
+          <li class="spec-item"><span class="spec-label">Capacidad Tanque</span><span class="spec-val">${escapeHtml(v.tankCap)} gal</span></li>
+        </ul>
+      </div>
+      <h4 class="card-section-title">Lubricantes y Filtros de Repuesto</h4>
+      <ul class="spec-list">
+        <li class="spec-item"><span class="spec-label">Aceite de Motor</span><span class="spec-val text-mono">${escapeHtml(v.oilMotor)}</span></li>
+        <li class="spec-item"><span class="spec-label">Aceite de Caja</span><span class="spec-val text-mono">${escapeHtml(v.oilGear)}</span></li>
+        <li class="spec-item"><span class="spec-label">Aceite Transmisión 4x4</span><span class="spec-val text-mono">${escapeHtml(v.oil4x4 || 'N/A')}</span></li>
+        <li class="spec-item"><span class="spec-label">Aceite de Diferencial</span><span class="spec-val text-mono">${escapeHtml(v.oilDiff)}</span></li>
+        <li class="spec-item"><span class="spec-label">Filtro de Aire</span><span class="spec-val text-mono text-bold">${escapeHtml(v.filterAir)}</span></li>
+        <li class="spec-item"><span class="spec-label">Filtro de Combustible</span><span class="spec-val text-mono text-bold">${escapeHtml(v.filterFuel)}</span></li>
+        <li class="spec-item"><span class="spec-label">Número Llanta / Rin</span><span class="spec-val text-mono">Llanta: ${escapeHtml(v.tyreNum)} / Rin: ${escapeHtml(v.rin)}</span></li>
+      </ul>
+    </section>
+
+    <section class="card-tab-panel" data-card-panel="adquisicion">
+      <h4 class="card-section-title">Datos de Adquisición</h4>
+      <ul class="spec-list mb-3">
+        <li class="spec-item"><span class="spec-label">Forma Adquisición</span><span class="spec-val">${escapeHtml(v.acquisition === 'Otros Convenios' ? v.acquisitionOther : v.acquisition)}</span></li>
+        <li class="spec-item"><span class="spec-label">Valor Adquisición</span><span class="spec-val text-bold">$ ${escapeHtml(v.value.toLocaleString())} USD</span></li>
+      </ul>
+      <h4 class="card-section-title">Estado de Seguro</h4>
+      ${seguroHTML}
+    </section>
+
+    <section class="card-tab-panel" data-card-panel="observaciones">
+      <h4 class="card-section-title">Observaciones de la Unidad</h4>
+      <div class="Box p-3 bg-subtle text-small italic">${escapeHtml(v.observations || 'Sin observaciones registradas en el inventario.')}</div>
+    </section>
+
+    <section class="card-tab-panel" data-card-panel="historial">
+      <h4 class="card-section-title">Historial de Mantenimiento</h4>
+      ${maintenanceHistoryHTML}
+    </section>
   `;
 
+  modalContent.querySelectorAll('[data-card-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.cardTab;
+      modalContent.querySelectorAll('[data-card-tab]').forEach(t => t.classList.remove('active'));
+      modalContent.querySelectorAll('[data-card-panel]').forEach(panel => panel.classList.remove('active'));
+      tab.classList.add('active');
+      modalContent.querySelector(`[data-card-panel="${target}"]`).classList.add('active');
+    });
+  });
+
   // Actualizar botones de acción del modal
-  document.getElementById('btn-delete-vehicle-card').setAttribute('onclick', `deleteVehicle('${v.id}')`);
-  document.getElementById('btn-edit-vehicle-card').setAttribute('onclick', `editVehicle('${v.id}')`);
+  document.getElementById('btn-delete-vehicle-card').setAttribute('onclick', `deleteVehicle(${safeJsArg(v.id)})`);
+  document.getElementById('btn-edit-vehicle-card').setAttribute('onclick', `editVehicle(${safeJsArg(v.id)})`);
+  document.getElementById('btn-maintenance-vehicle-card').setAttribute('onclick', `openMaintenanceModal(${safeJsArg(v.id)})`);
 
   // Mostrar modal de Ficha
   openModal('modal-card');
-  lucide.createIcons();
+  refreshIcons();
 
   // Generar QR de ficha técnica inmediatamente
   // El QR debe contener un resumen estructurado para cumplir estrictamente con "El QR debe mostrar la información de la ficha tecnica del vehiculo."
@@ -897,30 +1233,36 @@ MARCA/MODELO: ${v.marca} ${v.modelo}
 AÑO: ${v.year} | CATEGORÍA: ${v.categoria}
 CHASIS: ${v.chasis}
 MOTOR: ${v.motor}
-ESTADO: ${v.operatividad}
-KILOMETRAJE: ${v.km.toLocaleString()} km
-MOTOR CC: ${v.engineSize} cc | HP: ${v.hp}
+ESTADO: ${normalizedOperatividad}
+KILOMETRAJE: ${escapeHtml(v.km.toLocaleString())} km
+MOTOR CC: ${escapeHtml(v.engineSize)} cc | HP: ${v.hp}
 ACEITE MOTOR: ${v.oilMotor}
 FILTRO AIRE: ${v.filterAir}
 FILTRO COMBUSTIBLE: ${v.filterFuel}
 ADQUISICIÓN: ${v.acquisition} (${v.acquisitionOther || 'N/A'})
 SEGURO: ${v.hasInsurance ? `${v.insuranceCo} (${v.insuranceNum})` : 'NO TIENE'}
-VALOR: $ ${v.value.toLocaleString()} USD
+VALOR: $ ${escapeHtml(v.value.toLocaleString())} USD
 ------------------------------
 SITUACIÓN: ${v.situacion}
 OBSERVACIONES: ${v.observations || 'Ninguna'}`;
 
   setTimeout(() => {
-    new QRious({
-      element: document.getElementById('card-qr-canvas'),
-      value: qrDataText,
-      size: 150,
-      level: 'M'
-    });
+    const qrCanvas = document.getElementById('card-qr-canvas');
+    if (window.QRious && qrCanvas) {
+      new QRious({
+        element: qrCanvas,
+        value: qrDataText,
+        size: 150,
+        level: 'M'
+      });
+    } else {
+      console.warn('QRious no está disponible; se omite el QR de ficha técnica.');
+    }
 
     // Añadir simulador interactivo para que al hacer clic en el QR en pantalla, muestre lo que lee
-    document.getElementById('card-qr-canvas').style.cursor = 'zoom-in';
-    document.getElementById('card-qr-canvas').addEventListener('click', () => {
+    if (!qrCanvas) return;
+    qrCanvas.style.cursor = 'zoom-in';
+    qrCanvas.addEventListener('click', () => {
       simulateQrScan(qrDataText, v.id);
     });
   }, 100);
@@ -929,9 +1271,9 @@ OBSERVACIONES: ${v.observations || 'Ninguna'}`;
 // Simulador de escáner QR físico (apertura y lectura de datos)
 function simulateQrScan(qrText, vehicleId) {
   document.getElementById('qr-scan-data').textContent = qrText;
-  document.getElementById('btn-open-scanned-vehicle').setAttribute('onclick', `showVehicleCard('${vehicleId}'); closeModal('modal-qr-scanner');`);
+  document.getElementById('btn-open-scanned-vehicle').setAttribute('onclick', `showVehicleCard(${safeJsArg(vehicleId)}); closeModal('modal-qr-scanner');`);
   openModal('modal-qr-scanner');
-  lucide.createIcons();
+  refreshIcons();
 }
 
 // Emisión rápida de revisión para una sola unidad seleccionada
@@ -970,7 +1312,7 @@ function renderInspectionsView() {
   vehicleCheckboxList.innerHTML = '';
   
   // Excluir Chatarra del listado de revisiones
-  const validVehicles = state.vehicles.filter(v => v.operatividad !== 'Chatarra');
+  const validVehicles = state.vehicles.filter(v => normalizeOperatividad(v.operatividad) !== 'Chatarra');
 
   if (validVehicles.length === 0) {
     vehicleCheckboxList.innerHTML = `<div class="p-3 text-center text-muted">No hay vehículos válidos (Operativos o Recuperables) en el inventario.</div>`;
@@ -985,14 +1327,15 @@ function renderInspectionsView() {
     const div = document.createElement('div');
     div.className = 'Box-row Box-row--hover d-flex align-items-center py-2 px-3';
     
+    const normalizedOperatividad = normalizeOperatividad(v.operatividad);
     let operBadge = `<span class="Label Label--success ml-2">Operativo</span>`;
-    if (v.operatividad === 'Recuperable') operBadge = `<span class="Label Label--attention ml-2">Recuperable</span>`;
+    if (normalizedOperatividad === 'Recuperable') operBadge = `<span class="Label Label--attention ml-2">Recuperable</span>`;
 
     div.innerHTML = `
-      <label class="d-flex align-items-center flex-auto style-none cursor-pointer" for="cb-v-${v.id}">
-        <input type="checkbox" id="cb-v-${v.id}" class="vehicle-check-item mr-2" value="${v.id}">
+      <label class="d-flex align-items-center flex-auto style-none cursor-pointer" for="cb-v-${escapeHtml(v.id)}">
+        <input type="checkbox" id="cb-v-${escapeHtml(v.id)}" class="vehicle-check-item mr-2" value="${escapeHtml(v.id)}">
         <div class="flex-auto">
-          <span class="text-bold text-mono">${v.rhe}</span> - ${v.marca} ${v.modelo}
+          <span class="text-bold text-mono">${escapeHtml(v.rhe)}</span> - ${escapeHtml(v.marca)} ${escapeHtml(v.modelo)}
           ${operBadge}
         </div>
       </label>
@@ -1034,19 +1377,19 @@ function renderInspectionsHistory() {
       <div>
         <div class="text-bold text-blue d-flex align-items-center">
           <i data-lucide="file-text" class="mr-1" style="width:16px; height:16px;"></i>
-          Conjunto de Revisiones #${ins.startOrder}-${ins.endOrder}
+          Conjunto de Revisiones #${escapeHtml(ins.startOrder)}-${escapeHtml(ins.endOrder)}
         </div>
         <div class="text-small text-muted">
-          Emitido el ${dateFormatted} • Unidades inspeccionadas: ${ins.vehicleRhes.join(', ')}
+          Emitido el ${escapeHtml(dateFormatted)} • Unidades inspeccionadas: ${escapeHtml((ins.vehicleRhes || []).join(', '))}
         </div>
       </div>
-      <button class="btn btn-sm" onclick="reprintInspectionBatch('${ins.id}')">
+      <button class="btn btn-sm" onclick="reprintInspectionBatch(${safeInlineJsArg(ins.id)})">
         <i data-lucide="printer" class="mr-1"></i> Reimprimir Lote
       </button>
     `;
     historyList.appendChild(li);
   });
-  lucide.createIcons();
+  refreshIcons();
 }
 
 // Procesar formulario de emisión en lote
@@ -1125,129 +1468,151 @@ function generatePrintSheetsAndPrint(batch) {
   const printContainer = document.getElementById('print-container');
   printContainer.innerHTML = '';
 
+  const issuedAt = batch.timestamp ? new Date(batch.timestamp) : new Date();
+  const issuedLabel = formatDateDDMMYYYY(issuedAt);
+  const validUntilLabel = formatDateDDMMYYYY(addYears(issuedAt, 1));
+
   batch.sheets.forEach((sheet, index) => {
     const v = sheet.vehicle;
+    const dependencyUnit = v.dependencia || v.unidad || 'Unidad C4 de Artillería';
+    const vehicleModel = [v.modelo, v.year].filter(Boolean).join(' ');
+    const normalizedOperatividad = normalizeOperatividad(v.operatividad);
     const sheetDiv = document.createElement('div');
-    sheetDiv.className = 'print-sheet';
-    
-    // Encabezado, diseño técnico, fondo blanco
+    sheetDiv.className = 'print-sheet circulation-sheet';
+
     sheetDiv.innerHTML = `
-      <div class="print-header d-flex justify-content-between align-items-center">
-        <div>
-          <div class="print-title">FlotaHub - Hoja Oficial de Revisión Vehicular</div>
-          <div class="print-subtitle">Control de Estado y Alistamiento Operativo de Transportes</div>
-        </div>
-        <div class="text-right">
-          <span style="font-size:12px; font-weight:700; color: #57606a;">REGISTRO DE INSPECCIÓN</span><br>
-          <span class="text-mono" style="font-size: 16px; font-weight:700; color:#cf222e;">No. ${sheet.orderNumber}</span>
-        </div>
-      </div>
+      <div class="circulation-frame">
+        <section class="circulation-panel circulation-panel--front">
+          <header class="circulation-header">
+            <div class="circulation-brand">
+              <img src="assets/escudo-ffaa-honduras.png" alt="Escudo Fuerzas Armadas de Honduras" class="circulation-logo">
+              <div>
+                <div class="circulation-kicker">Fuerzas Armadas de Honduras</div>
+                <div class="circulation-agency">Unidad C4 de Artillería</div>
+              </div>
+            </div>
+            <div class="circulation-title-block">
+              <h1>HOJA DE REVISIÓN VEHICULAR</h1>
+              <div class="circulation-order">No. ${escapeHtml(sheet.orderNumber)}</div>
+            </div>
+          </header>
 
-      <!-- Ficha Técnica del vehículo impresa -->
-      <div class="print-meta-grid">
-        <div class="print-meta-item">
-          <span class="print-meta-label">RHE (Placa):</span>
-          <span class="print-meta-val">${v.rhe}</span>
-        </div>
-        <div class="print-meta-item">
-          <span class="print-meta-label">Tipo / Marca:</span>
-          <span class="print-meta-val">${v.type} / ${v.marca}</span>
-        </div>
-        <div class="print-meta-item">
-          <span class="print-meta-label">Modelo / Año:</span>
-          <span class="print-meta-val">${v.modelo} / ${v.year}</span>
-        </div>
-        <div class="print-meta-item">
-          <span class="print-meta-label">Kilometraje:</span>
-          <span class="print-meta-val">${v.km.toLocaleString()} km</span>
-        </div>
-      </div>
-
-      <div class="print-section-header">Especificaciones Técnicas Registradas</div>
-      
-      <div class="print-specs-grid">
-        <div>
-          <table class="print-table">
-            <tr><td><strong>Chasis (VIN):</strong></td><td class="text-mono">${v.chasis}</td></tr>
-            <tr><td><strong>Motor:</strong></td><td class="text-mono">${v.motor}</td></tr>
-            <tr><td><strong>Categoría:</strong></td><td>${v.categoria}</td></tr>
-            <tr><td><strong>Situación:</strong></td><td>${v.situacion}</td></tr>
-            <tr><td><strong>Tracción / Transmisión:</strong></td><td>${v.traction} / ${v.transmission}</td></tr>
-            <tr><td><strong>Cabina / Combustible:</strong></td><td>${v.cabin === 'Otros' ? v.cabinOther : v.cabin} / ${v.fuel}</td></tr>
-          </table>
-        </div>
-        <div>
-          <table class="print-table">
-            <tr><td><strong>Aceite Motor:</strong></td><td class="text-mono">${v.oilMotor}</td></tr>
-            <tr><td><strong>Filtro de Aire:</strong></td><td class="text-mono">${v.filterAir}</td></tr>
-            <tr><td><strong>Filtro Combustible:</strong></td><td class="text-mono">${v.filterFuel}</td></tr>
-            <tr><td><strong>Seguro:</strong></td><td>${v.hasInsurance ? `${v.insuranceCo} (${v.insuranceNum})` : 'NO TIENE'}</td></tr>
-            <tr><td><strong>Autonomía Carretera / Mixto:</strong></td><td>${v.autoHwy} / ${v.autoMix} km/gal</td></tr>
-            <tr><td><strong>Capacidad Pasajeros:</strong></td><td>Con Eq: ${v.passengersEq} / Sin Eq: ${v.passengersNoEq}</td></tr>
-          </table>
-        </div>
-      </div>
-
-      <div class="print-section-header">Puntos Críticos de Inspección Visual y Física</div>
-      
-      <div class="print-checklist">
-        <div class="print-check-item"><div class="print-checkbox-box"></div> 1. Niveles de Aceites (Motor, Caja, Diferencial, 4x4)</div>
-        <div class="print-check-item"><div class="print-checkbox-box"></div> 2. Estanqueidad y Fugas visibles de fluidos</div>
-        <div class="print-check-item"><div class="print-checkbox-box"></div> 3. Estado de Llantas (Número de llantas: ${v.tyreNum} / Rin: ${v.rin})</div>
-        <div class="print-check-item"><div class="print-checkbox-box"></div> 4. Presión de inflado y rueda de auxilio</div>
-        <div class="print-check-item"><div class="print-checkbox-box"></div> 5. Sistema eléctrico general e iluminación (Luces de marcha)</div>
-        <div class="print-check-item"><div class="print-checkbox-box"></div> 6. Estado de filtros de aire (${v.filterAir}) y combustible (${v.filterFuel})</div>
-        <div class="print-check-item"><div class="print-checkbox-box"></div> 7. Funcionamiento del sistema de tracción ${v.traction} y velocidades (${v.speeds})</div>
-        <div class="print-check-item"><div class="print-checkbox-box"></div> 8. Estado físico de carrocería, cabina y chasis</div>
-      </div>
-
-      <div class="print-footer-grid">
-        <div>
-          <strong>Observaciones de la Inspección Técnica:</strong>
-          <div style="border: 1px solid #d0d7de; height: 80px; margin-top: 6px; padding: 10px; font-size:10px; color:#57606a;">
-            ${v.observations ? `<em>Observaciones del inventario:</em> ${v.observations}` : 'Escriba aquí anomalías adicionales encontradas...'}
+          <div class="circulation-data-grid">
+            <div class="circulation-field circulation-field--wide">
+              <span>Dependencia/Unidad:</span>
+              <strong>${escapeHtml(dependencyUnit)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Registro (Placa):</span>
+              <strong>${escapeHtml(v.rhe)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Tipo de vehículo:</span>
+              <strong>${escapeHtml(v.type)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Marca:</span>
+              <strong>${escapeHtml(v.marca)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Modelo:</span>
+              <strong>${escapeHtml(vehicleModel)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Color:</span>
+              <strong>${escapeHtml(v.color || 'N/A')}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Número de motor:</span>
+              <strong>${escapeHtml(v.motor)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Número de chasis:</span>
+              <strong>${escapeHtml(v.chasis)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Operatividad:</span>
+              <strong>${escapeHtml(normalizedOperatividad)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Emitido el:</span>
+              <strong>${escapeHtml(issuedLabel)}</strong>
+            </div>
+            <div class="circulation-field">
+              <span>Vigencia:</span>
+              <strong>${escapeHtml(validUntilLabel)}</strong>
+            </div>
           </div>
-          <div class="print-signature-box">
-            Firma del Inspector Encargado de Flota
+
+          <div class="circulation-signatures">
+            <div class="circulation-signature-line">Jefe / Encargado de Flota</div>
+            <div class="circulation-signature-line">Inspector Responsable</div>
           </div>
-        </div>
-        
-        <div class="print-qr-container">
-          <!-- Canvas QR que se renderizará dinámicamente -->
-          <canvas id="qr-print-${batch.id}-${index}" class="print-qr-code"></canvas>
-          <div class="print-qr-label text-mono">Escanear para Ficha Técnica</div>
-        </div>
+        </section>
+
+        <section class="circulation-panel circulation-panel--back">
+          <header class="circulation-header circulation-header--compact">
+            <div>
+              <div class="circulation-kicker">CÓDIGO ÚNICO IDENTIFICADOR</div>
+              <div class="circulation-order">${escapeHtml(sheet.orderNumber)}</div>
+              <div class="circulation-validity">Válida hasta: ${escapeHtml(validUntilLabel)}</div>
+            </div>
+            <img src="assets/escudo-ffaa-honduras.png" alt="Escudo Fuerzas Armadas de Honduras" class="circulation-logo circulation-logo--small">
+          </header>
+
+          <div class="circulation-qr-layout">
+            <canvas id="qr-print-${batch.id}-${index}" class="print-qr-code circulation-qr"></canvas>
+            <div class="circulation-qr-meta">
+              <div><span>Usuario:</span><strong>${escapeHtml(state.settings.username || 'Administrador')}</strong></div>
+              <div><span>Fecha:</span><strong>${escapeHtml(issuedLabel)}</strong></div>
+              <div><span>Registro:</span><strong>${escapeHtml(v.rhe)}</strong></div>
+              <div><span>Motor:</span><strong>${escapeHtml(v.motor)}</strong></div>
+            </div>
+          </div>
+
+          <p class="circulation-legal">
+            Documento interno de revisión vehicular generado para control de estado, identificación y alistamiento operativo de unidades de transporte.
+          </p>
+          <div class="circulation-footer-note">
+            Podrá verificarse la autenticidad de este distintivo mediante el Código QR consignado en esta hoja.
+          </div>
+        </section>
       </div>
     `;
 
     printContainer.appendChild(sheetDiv);
 
-    // Generar el código QR para esta hoja
-    const qrDataText = `FLOTAHUB OFICIAL - INSPECCIÓN VEHÍCULAR
+    const qrDataText = `HOJA DE REVISIÓN VEHICULAR - FFAA HONDURAS
 ------------------------------
 Orden de Revisión: ${sheet.orderNumber}
-RHE (PLACA): ${v.rhe}
-TIPO: ${v.type} | MARCA/MODELO: ${v.marca} ${v.modelo}
-AÑO: ${v.year} | CHASIS: ${v.chasis} | MOTOR: ${v.motor}
-KM ACTUAL: ${v.km.toLocaleString()} km
-OPERATIVIDAD EN FICHA: ${v.operatividad}
-ACEITE MOTOR: ${v.oilMotor}
-FILTRO AIRE: ${v.filterAir} | FILTRO COMBUSTIBLE: ${v.filterFuel}
-POLIZA: ${v.hasInsurance ? `${v.insuranceCo} (${v.insuranceNum})` : 'NO CONSTA'}
-------------------------------
-Verificado por FlotaHub el ${new Date().toLocaleDateString('es-AR')}`;
+Dependencia/Unidad: ${dependencyUnit}
+Registro (Placa): ${v.rhe}
+Tipo de vehículo: ${v.type}
+Marca: ${v.marca}
+Modelo: ${vehicleModel}
+Color: ${v.color || 'N/A'}
+Número de motor: ${v.motor}
+Número de chasis: ${v.chasis}
+Operatividad: ${normalizedOperatividad}
+Emitido el: ${issuedLabel}
+Vigencia: ${validUntilLabel}`;
 
     setTimeout(() => {
+      const qrPrintCanvas = document.getElementById(`qr-print-${batch.id}-${index}`);
+      if (!window.QRious || !qrPrintCanvas) {
+        console.warn('QRious no está disponible; se omite un QR de impresión.');
+        return;
+      }
+
       new QRious({
-        element: document.getElementById(`qr-print-${batch.id}-${index}`),
+        element: qrPrintCanvas,
         value: qrDataText,
-        size: 110,
+        size: 150,
         level: 'M'
       });
     }, 50);
   });
 
-  // Mostrar aviso de impresión y gatillar impresión de navegador
   setTimeout(() => {
     window.print();
   }, 350);
@@ -1309,7 +1674,7 @@ function updateSelectors() {
 
   sortedVehicles.forEach(v => {
     // Los vehículos Chatarra no suelen recibir mantenimientos de aceite ordinarios, pero los listamos
-    const chatarraIndicator = v.operatividad === 'Chatarra' ? ' (CHATARRA)' : '';
+    const chatarraIndicator = normalizeOperatividad(v.operatividad) === 'Chatarra' ? ' (CHATARRA)' : '';
     const option = document.createElement('option');
     option.value = v.id;
     option.textContent = `${v.rhe} - ${v.marca} ${v.modelo}${chatarraIndicator}`;
@@ -1375,7 +1740,7 @@ maintenanceForm.addEventListener('submit', (e) => {
     state.vehicles[vehicleIndex].km = kmInput;
     
     // Si era recuperable y se le hace mantenimiento integral, sugerir o registrar
-    if (state.vehicles[vehicleIndex].operatividad === 'Recuperable' && (oilMotor || otherWork)) {
+    if (normalizeOperatividad(state.vehicles[vehicleIndex].operatividad) === 'Recuperable' && (oilMotor || otherWork)) {
       logAction(`Kilometraje de ${vehicle.rhe} actualizado a ${kmInput.toLocaleString()} km.`);
     }
   }
@@ -1414,6 +1779,10 @@ function renderMaintenanceView() {
 
   state.maintenances.forEach(m => {
     const tr = document.createElement('tr');
+    tr.className = 'maintenance-row';
+    tr.style.cursor = 'pointer';
+    tr.setAttribute('tabindex', '0');
+    tr.setAttribute('aria-label', `Ver detalle de mantenimiento ${m.vehicleRhe} ${formatMaintenanceDate(m.date)}`);
     
     // Convertir booleano a Check icon o Cruz
     const checkHTML = (val) => val ? `<i data-lucide="check" class="text-green" style="width:16px; height:16px;"></i> Sí` : `<span class="text-muted">—</span>`;
@@ -1422,25 +1791,59 @@ function renderMaintenanceView() {
     const dateFormatted = m.date.split('-').reverse().join('/'); // DD/MM/YYYY
 
     tr.innerHTML = `
-      <td class="text-bold">${dateFormatted}</td>
-      <td class="text-bold text-mono">${m.vehicleRhe}</td>
-      <td>${m.km.toLocaleString()} km</td>
+      <td class="text-bold">${escapeHtml(dateFormatted)}</td>
+      <td class="text-bold text-mono">${escapeHtml(m.vehicleRhe)}</td>
+      <td>${escapeHtml(m.km.toLocaleString())} km</td>
       <td>${checkHTML(m.oilMotor)}</td>
       <td>${checkHTML(m.oilGear)}</td>
       <td>${checkHTML(m.oil4x4)}</td>
       <td>${checkHTML(m.oilDiff)}</td>
-      <td class="text-small" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${m.other || 'Ninguno'}">
-        ${m.other || '<span class="text-muted">Ninguno</span>'}
+      <td class="text-small" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(m.other || 'Ninguno')}">
+        ${m.other ? escapeHtml(m.other) : '<span class="text-muted">Ninguno</span>'}
       </td>
-      <td class="text-right">
-        <button class="btn btn-sm btn-danger" onclick="deleteMaintenance('${m.id}')" title="Eliminar Reporte">
-          <i data-lucide="trash-2" style="width:12px; height:12px;"></i>
+      <td class="text-right" onclick="event.stopPropagation();">
+        <button class="btn btn-sm btn-danger" onclick="deleteMaintenance(${safeInlineJsArg(m.id)})" title="Eliminar Reporte">
+          <i data-lucide="trash-2" style="width:14px; height:14px;"></i>
         </button>
       </td>
     `;
+    tr.addEventListener('click', () => showMaintenanceDetail(m.id));
+    tr.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        showMaintenanceDetail(m.id);
+      }
+    });
     maintenanceTableBody.appendChild(tr);
   });
-  lucide.createIcons();
+  refreshIcons();
+}
+
+function showMaintenanceDetail(maintId) {
+  const m = state.maintenances.find(item => item.id === maintId);
+  if (!m) return;
+
+  const vehicle = state.vehicles.find(v => v.id === m.vehicleId);
+  const checkHTML = (val) => val ? '<span class="Label Label--success">Sí</span>' : '<span class="Label">No</span>';
+  const content = document.getElementById('maintenance-detail-content');
+
+  content.innerHTML = `
+    <ul class="spec-list mb-3">
+      <li class="spec-item"><span class="spec-label">Unidad</span><span class="spec-val text-mono text-bold">${escapeHtml(m.vehicleRhe)}</span></li>
+      <li class="spec-item"><span class="spec-label">Vehículo</span><span class="spec-val">${escapeHtml(vehicle ? `${vehicle.marca} ${vehicle.modelo}` : 'No encontrado')}</span></li>
+      <li class="spec-item"><span class="spec-label">Fecha</span><span class="spec-val">${escapeHtml(formatMaintenanceDate(m.date))}</span></li>
+      <li class="spec-item"><span class="spec-label">Kilometraje</span><span class="spec-val">${escapeHtml(Number(m.km || 0).toLocaleString())} km</span></li>
+      <li class="spec-item"><span class="spec-label">Aceite motor</span><span class="spec-val">${checkHTML(m.oilMotor)}</span></li>
+      <li class="spec-item"><span class="spec-label">Aceite caja</span><span class="spec-val">${checkHTML(m.oilGear)}</span></li>
+      <li class="spec-item"><span class="spec-label">Aceite transmisión 4x4</span><span class="spec-val">${checkHTML(m.oil4x4)}</span></li>
+      <li class="spec-item"><span class="spec-label">Aceite diferencial</span><span class="spec-val">${checkHTML(m.oilDiff)}</span></li>
+    </ul>
+    <h4 class="card-section-title">Otros trabajos / observaciones</h4>
+    <div class="Box p-3 bg-subtle text-small">${escapeHtml(m.other || 'Sin otros trabajos registrados.')}</div>
+  `;
+
+  openModal('modal-maintenance-detail');
+  refreshIcons();
 }
 
 function deleteMaintenance(maintId) {
@@ -1513,7 +1916,12 @@ if (btnProfile && dropdownMenu) {
   });
   
   document.getElementById('btn-logout').addEventListener('click', () => {
-    alert('Funcionalidad de "Cerrar sesión" en desarrollo.');
+    apiRequest('/api/logout', { method: 'POST', body: '{}' })
+      .catch(() => {})
+      .finally(() => {
+        authState = { user: null, sessionId: null };
+        showAuthGate();
+      });
   });
   
   document.getElementById('btn-open-settings').addEventListener('click', () => {
@@ -1536,6 +1944,7 @@ document.getElementById('settings-theme-toggle').addEventListener('change', (e) 
   state.settings.theme = e.target.checked ? 'dark' : 'light';
   saveStateToStorage();
   applyTheme();
+  initDashboard();
 });
 
 document.getElementById('settings-currency').addEventListener('change', (e) => {
@@ -1562,6 +1971,11 @@ document.getElementById('settings-rev-suffix').addEventListener('input', (e) => 
   saveStateToStorage();
   updateHeaderRevision();
 });
+
+function updateUserProfileName() {
+  const profileName = document.getElementById('user-profile-name');
+  if (profileName) profileName.textContent = state.settings.username || 'Administrador';
+}
 
 function updateHeaderRevision() {
   const label = document.getElementById('header-last-revision');
@@ -1610,25 +2024,67 @@ btnPurge.addEventListener('click', () => {
 // 10. INICIALIZACIÓN GLOBAL DE LA APLICACIÓN
 // ==========================================================================
 
-window.addEventListener('DOMContentLoaded', () => {
+async function initializeApplication() {
+  const hasSession = await loadCurrentSession();
+  if (!hasSession) {
+    refreshIcons();
+    return;
+  }
+
   // Cargar estado desde almacenamiento local
   loadState();
+  applyAuthUi();
   
   // Actualizar etiquetas de moneda en la UI
   updateCurrencyLabels();
   
-  // Actualizar header de última revisión
+  // Actualizar header
   updateHeaderRevision();
+  updateUserProfileName();
 
   // Iniciar la pestaña inicial (Tablero)
   initDashboard();
 
   // Registrar íconos Lucide
-  lucide.createIcons();
+  refreshIcons();
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const loginForm = document.getElementById('form-login');
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const error = document.getElementById('login-error');
+      const button = document.getElementById('btn-login');
+      if (error) error.classList.add('d-none');
+      if (button) button.disabled = true;
+
+      try {
+        const session = await apiRequest('/api/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            username: document.getElementById('login-username').value,
+            password: document.getElementById('login-password').value
+          })
+        });
+        authState.user = session.user;
+        authState.sessionId = session.sessionId;
+        hideAuthGate();
+        applyAuthUi();
+        initializeApplication();
+      } catch (loginError) {
+        showAuthGate(loginError.message);
+      } finally {
+        if (button) button.disabled = false;
+      }
+    });
+  }
+
+  initializeApplication();
 });
 
 // ==========================================================================
-// 10. IMPORTACIÓN DE CSV
+// 11. IMPORTACIÓN DE CSV
 // ==========================================================================
 
 const fileImportCsv = document.getElementById('file-import-csv');
@@ -1681,7 +2137,7 @@ function importVehiclesFromCSV(csvText) {
       rhe: rhe,
       chasis: cols[11].toUpperCase(),
       motor: cols[12].toUpperCase(),
-      operatividad: cols[13] || "Operativo",
+      operatividad: normalizeOperatividad(cols[13] || "Operativo"),
       situacion: cols[14] || "",
       traction: cols[15] || "Sencillo",
       transmission: cols[16] || "Mecánica",
